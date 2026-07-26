@@ -2,6 +2,7 @@ import os
 import re
 import regex
 from concurrent.futures import ProcessPoolExecutor
+from collections import Counter
 from typing import List
 from typing import BinaryIO
 from typing import List, Tuple
@@ -65,46 +66,6 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
-
-
-def process_chunk_v2(
-    input_path: str,
-    start: int,
-    end: int,
-    special_tokens: list[str],
-) -> Counter[tuple[bytes, ...]]:
-
-    with open(input_path, "rb") as f:
-        f.seek(start)
-        raw = f.read(end - start)
-
-    text = raw.decode("utf-8")
-
-    if special_tokens:
-        pattern = re.compile(
-            "(" + "|".join(map(re.escape, special_tokens)) + ")"
-        )
-        pieces = pattern.split(text)
-    else:
-        pieces = [text]
-
-    counter = Counter()
-
-    for piece in pieces:
-
-        if piece in special_tokens:
-            continue
-
-        for token in GPT2_PATTERN.findall(piece):
-
-            byte_tuple = tuple(
-                bytes([b])
-                for b in token.encode("utf-8")
-            )
-
-            counter[byte_tuple] += 1
-
-    return counter
 
 
 
