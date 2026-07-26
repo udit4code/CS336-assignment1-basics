@@ -299,7 +299,6 @@ def train_bpe_v2(
         )
 
         # Recompute pair counts
-        # (later replace with incremental updates)
         pair_counter = initialize_pair_counts(word_counter)
 
     return vocab, merges
