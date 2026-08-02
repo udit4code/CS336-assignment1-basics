@@ -10,6 +10,7 @@ from .adapters import (
     run_multihead_self_attention,
     run_multihead_self_attention_with_rope,
     run_rmsnorm,
+    run_rmsnorm_with_reduce,
     run_rope,
     run_scaled_dot_product_attention,
     run_silu,
@@ -194,6 +195,16 @@ def test_rmsnorm(numpy_snapshot, ts_state_dict, in_embeddings):
     actual_output = run_rmsnorm(d_model=d_model, eps=1e-5, weights=reference_weights, in_features=in_embeddings)
 
     numpy_snapshot.assert_match(actual_output, atol=1e-4)
+    
+def test_rmsnorm_with_reduce(numpy_snapshot, ts_state_dict, in_embeddings):
+    state_dict, _ = ts_state_dict
+    reference_weights = state_dict["layers.1.ln1.weight"]
+    d_model = reference_weights.shape[0]
+
+    actual_output = run_rmsnorm_with_reduce(d_model=d_model, eps=1e-5, weights=reference_weights, in_features=in_embeddings)
+
+    numpy_snapshot.assert_match(actual_output, atol=1e-4)
+    
 
 
 def test_rope(numpy_snapshot, in_embeddings, d_model, theta, n_queries, pos_ids):
