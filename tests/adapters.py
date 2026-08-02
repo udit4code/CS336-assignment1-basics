@@ -29,8 +29,13 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    from cs336_basics.TransformerImplementation.LinearModule.LinearLayerWithoutBias import Linear 
 
+    linear = Linear(d_in, d_out)
+    linear.load_state_dict({
+        "weight": weights
+    })
+    return linear(in_features)
 
 def run_embedding(
     vocab_size: int,
@@ -563,10 +568,10 @@ def get_tokenizer(
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
     tokenizer_classes = {
-        "v1": ("cs336_basics.BPE.Tokenizer.v1", "NaiveTokenizer"),
-        "v2": ("cs336_basics.BPE.Tokenizer.v2", "TokenizerV2"),
-        "v3": ("cs336_basics.BPE.Tokenizer.v3", "TokenizerV3"),
-        "v4": ("cs336_basics.BPE.Tokenizer.v4", "TokenizerV4"),
+        "v1": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v1", "NaiveTokenizer"),
+        "v2": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v2", "TokenizerV2"),
+        "v3": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v3", "TokenizerV3"),
+        "v4": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v4", "TokenizerV4"),
     }
 
     if tokenizer_name not in tokenizer_classes:
@@ -605,8 +610,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.BPE.Trainer.v2 import OptimisedBPETrainer
-
+    from cs336_basics.SubWordEncoding.BPE_Trainer.v2 import OptimisedBPETrainer
     return OptimisedBPETrainer().train(input_path, vocab_size, special_tokens)
 
 
@@ -637,5 +641,5 @@ def run_train_bpe_naive(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.BPE.Trainer.v1 import train_bpe  
+    from cs336_basics.SubWordEncoding.BPE_Trainer.v1 import train_bpe  
     return train_bpe(input_path, vocab_size, special_tokens)

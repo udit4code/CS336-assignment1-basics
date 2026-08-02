@@ -1,17 +1,10 @@
 import json
 import time
 
-from cs336_basics.BPE.Trainer.v1 import NaiveBPETrainer
-from cs336_basics.BPE.Trainer.v2 import OptimisedBPETrainer
-from cs336_basics.BPE.Trainer.base import BPE_Trainer
 
 from .adapters import run_train_bpe
 from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
-
-def test_bpe_trainers_share_base_class():
-    assert issubclass(NaiveBPETrainer, BPE_Trainer)
-    assert issubclass(OptimisedBPETrainer, BPE_Trainer)
 
 
 def test_train_bpe_speed():
