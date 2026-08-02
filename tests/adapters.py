@@ -37,6 +37,33 @@ def run_linear(
     })
     return linear(in_features)
 
+def run_linear_einops(
+    d_in: int,
+    d_out: int,
+    weights: Float[Tensor, " d_out d_in"],
+    in_features: Float[Tensor, " ... d_in"],
+) -> Float[Tensor, " ... d_out"]:
+    """
+    Given the weights of a Linear layer, compute the transformation of a batched input.
+
+    Args:
+        in_dim (int): The size of the input dimension
+        out_dim (int): The size of the output dimension
+        weights (Float[Tensor, "d_out d_in"]): The linear weights to use
+        in_features (Float[Tensor, "... d_in"]): The output tensor to apply the function to
+
+    Returns:
+        Float[Tensor, "... d_out"]: The transformed output of your linear module.
+    """
+
+    from cs336_basics.TransformerImplementation.LinearModule.LinearLayerWithoutBiasEinops import LinearEinops 
+
+    linear = LinearEinops(d_in, d_out)
+    linear.load_state_dict({
+        "weight": weights
+    })
+    return linear(in_features)
+
 def run_embedding(
     vocab_size: int,
     d_model: int,

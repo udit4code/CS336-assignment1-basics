@@ -6,6 +6,7 @@ from einops import rearrange
 from .adapters import (
     run_embedding,
     run_linear,
+    run_linear_einops,
     run_multihead_self_attention,
     run_multihead_self_attention_with_rope,
     run_rmsnorm,
@@ -19,8 +20,20 @@ from .adapters import (
 
 
 def test_linear(numpy_snapshot, ts_state_dict, in_embeddings, d_model, d_ff):
+    # Testing Without einops
     w1_weight = ts_state_dict[0]["layers.0.ffn.w1.weight"]
     output = run_linear(
+        d_in=d_model,
+        d_out=d_ff,
+        weights=w1_weight,
+        in_features=in_embeddings,
+    )
+    numpy_snapshot.assert_match(output)
+
+def test_linear_einops(numpy_snapshot, ts_state_dict, in_embeddings, d_model, d_ff):
+    # Testing With einops
+    w1_weight = ts_state_dict[0]["layers.0.ffn.w1.weight"]
+    output = run_linear_einops(
         d_in=d_model,
         d_out=d_ff,
         weights=w1_weight,
