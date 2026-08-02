@@ -134,4 +134,13 @@ class TokenizerV3(BaseTokenizer):
         return data.decode(
             "utf-8",
             errors="replace",
+        ) 
+        
+    def decode(self, ids: list[int]) -> str:
+        return (
+            b"".join(
+                self.id_to_token[token_id]
+                for token_id in ids
+            )
+            .decode("utf-8", errors="replace")
         )
