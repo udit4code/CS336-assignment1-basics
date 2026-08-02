@@ -3,12 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 import regex as re
 
-from .base import BaseTokenizer
+from .base import BaseTokenizer, GPT2_PRETOKENIZER
 
-
-GPT2_PRETOKENIZER = re.compile(
-    r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-)
 
 
 class NaiveTokenizer(BaseTokenizer):

@@ -5,6 +5,11 @@ import json
 import regex as re
 
 
+
+GPT2_PRETOKENIZER = re.compile(
+    r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+)
+
 class BaseTokenizer(ABC):
 
     def __init__(self, vocab, merges, special_tokens=None):
