@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 import json
 import regex as re
 
+from tests.common import gpt2_bytes_to_unicode
+
 
 
 GPT2_PRETOKENIZER = re.compile(
@@ -46,14 +48,36 @@ class BaseTokenizer(ABC):
         with open(vocab_filepath, "r") as f:
             raw = json.load(f)
 
-        vocab = {int(k): bytes.fromhex(v) for k, v in raw.items()}
+        if isinstance(raw, dict) and raw and all(isinstance(k, str) for k in raw.keys()):
+            byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode().items()}
+            vocab = {}
+            for token, index in raw.items():
+                if isinstance(index, int):
+                    token_id = index
+                else:
+                    token_id = int(index)
+
+                if token in byte_decoder:
+                    token_bytes = bytes([byte_decoder[token]])
+                else:
+                    token_bytes = token.encode("utf-8")
+
+                vocab[token_id] = token_bytes
+        else:
+            vocab = {int(k): bytes.fromhex(v) for k, v in raw.items()}
 
         merges = []
 
         with open(merges_filepath) as f:
             for line in f:
-                left, right = line.rstrip().split()
-                merges.append((bytes.fromhex(left), bytes.fromhex(right)))
+                cleaned_line = line.rstrip()
+                if not cleaned_line or cleaned_line.startswith("#"):
+                    continue
+                left, right = cleaned_line.split()
+                if all(token.startswith("\\x") for token in (left, right)):
+                    merges.append((bytes.fromhex(left), bytes.fromhex(right)))
+                else:
+                    merges.append((left.encode("utf-8"), right.encode("utf-8")))
 
         return cls(vocab, merges, special_tokens)
 

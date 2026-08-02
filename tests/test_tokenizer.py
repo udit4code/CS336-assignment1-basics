@@ -16,6 +16,12 @@ from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
 VOCAB_PATH = FIXTURES_PATH / "gpt2_vocab.json"
 MERGES_PATH = FIXTURES_PATH / "gpt2_merges.txt"
+TOKENIZER_NAMES = ["v1", "v2", "v3", "v4"]
+
+
+@pytest.fixture(params=TOKENIZER_NAMES, ids=TOKENIZER_NAMES)
+def tokenizer_name(request):
+    return request.param
 
 
 def memory_limit(max_mem):
@@ -42,6 +48,7 @@ def get_tokenizer_from_vocab_merges_path(
     vocab_path: str | os.PathLike,
     merges_path: str | os.PathLike,
     special_tokens: list[str] | None = None,
+    tokenizer_name: str = "v4",
 ):
     gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode().items()}
     with open(vocab_path) as vocab_f:
@@ -73,13 +80,14 @@ def get_tokenizer_from_vocab_merges_path(
         )
         for merge_token_1, merge_token_2 in gpt2_bpe_merges
     ]
-    return get_tokenizer(vocab, merges, special_tokens)
+    return get_tokenizer(vocab, merges, special_tokens, tokenizer_name=tokenizer_name)
 
 
-def test_roundtrip_empty():
+def test_roundtrip_empty(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = ""
     encoded_ids = tokenizer.encode(test_string)
@@ -87,11 +95,12 @@ def test_roundtrip_empty():
     assert test_string == decoded_string
 
 
-def test_empty_matches_tiktoken():
+def test_empty_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = ""
 
@@ -106,10 +115,11 @@ def test_empty_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_roundtrip_single_character():
+def test_roundtrip_single_character(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "s"
     encoded_ids = tokenizer.encode(test_string)
@@ -117,11 +127,12 @@ def test_roundtrip_single_character():
     assert test_string == decoded_string
 
 
-def test_single_character_matches_tiktoken():
+def test_single_character_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "s"
 
@@ -136,10 +147,11 @@ def test_single_character_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_roundtrip_single_unicode_character():
+def test_roundtrip_single_unicode_character(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "🙃"
     encoded_ids = tokenizer.encode(test_string)
@@ -147,11 +159,12 @@ def test_roundtrip_single_unicode_character():
     assert test_string == decoded_string
 
 
-def test_single_unicode_character_matches_tiktoken():
+def test_single_unicode_character_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "🙃"
 
@@ -163,10 +176,11 @@ def test_single_unicode_character_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_roundtrip_ascii_string():
+def test_roundtrip_ascii_string(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Hello, how are you?"
     encoded_ids = tokenizer.encode(test_string)
@@ -174,10 +188,13 @@ def test_roundtrip_ascii_string():
     assert test_string == decoded_string
 
 
-def test_ascii_string_matches_tiktoken():
+def test_ascii_string_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Hello, how are you?"
 
@@ -192,10 +209,11 @@ def test_ascii_string_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_roundtrip_unicode_string():
+def test_roundtrip_unicode_string(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Héllò hôw are ü? 🙃"
     encoded_ids = tokenizer.encode(test_string)
@@ -203,10 +221,13 @@ def test_roundtrip_unicode_string():
     assert test_string == decoded_string
 
 
-def test_unicode_string_matches_tiktoken():
+def test_unicode_string_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Héllò hôw are ü? 🙃"
 
@@ -218,9 +239,12 @@ def test_unicode_string_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_roundtrip_unicode_string_with_special_tokens():
+def test_roundtrip_unicode_string_with_special_tokens(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
     encoded_ids = tokenizer.encode(test_string)
@@ -232,10 +256,13 @@ def test_roundtrip_unicode_string_with_special_tokens():
     assert test_string == decoded_string
 
 
-def test_unicode_string_with_special_tokens_matches_tiktoken():
+def test_unicode_string_with_special_tokens_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
 
@@ -247,11 +274,12 @@ def test_unicode_string_with_special_tokens_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == test_string
 
 
-def test_overlapping_special_tokens():
+def test_overlapping_special_tokens(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
         special_tokens=["<|endoftext|>", "<|endoftext|><|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     test_string = "Hello, how <|endoftext|><|endoftext|> are you?<|endoftext|>"
 
@@ -264,10 +292,11 @@ def test_overlapping_special_tokens():
     assert tokenizer.decode(ids) == test_string
 
 
-def test_address_roundtrip():
+def test_address_roundtrip(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     with open(FIXTURES_PATH / "address.txt") as f:
         corpus_contents = f.read()
@@ -276,11 +305,12 @@ def test_address_roundtrip():
     assert tokenizer.decode(ids) == corpus_contents
 
 
-def test_address_matches_tiktoken():
+def test_address_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "address.txt"
     with open(corpus_path) as f:
@@ -293,10 +323,11 @@ def test_address_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
 
-def test_german_roundtrip():
+def test_german_roundtrip(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     with open(FIXTURES_PATH / "german.txt") as f:
         corpus_contents = f.read()
@@ -305,11 +336,12 @@ def test_german_roundtrip():
     assert tokenizer.decode(ids) == corpus_contents
 
 
-def test_german_matches_tiktoken():
+def test_german_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "german.txt"
     with open(corpus_path) as f:
@@ -322,10 +354,11 @@ def test_german_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
 
-def test_tinystories_sample_roundtrip():
+def test_tinystories_sample_roundtrip(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     with open(FIXTURES_PATH / "tinystories_sample.txt") as f:
         corpus_contents = f.read()
@@ -334,10 +367,13 @@ def test_tinystories_sample_roundtrip():
     assert tokenizer.decode(ids) == corpus_contents
 
 
-def test_tinystories_matches_tiktoken():
+def test_tinystories_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "tinystories_sample.txt"
     with open(corpus_path) as f:
@@ -350,10 +386,13 @@ def test_tinystories_matches_tiktoken():
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
 
-def test_encode_special_token_trailing_newlines():
+def test_encode_special_token_trailing_newlines(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "special_token_trailing_newlines.txt"
     with open(corpus_path) as f:
@@ -366,10 +405,13 @@ def test_encode_special_token_trailing_newlines():
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
 
-def test_encode_special_token_double_newline_non_whitespace():
+def test_encode_special_token_double_newline_non_whitespace(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "special_token_double_newlines_non_whitespace.txt"
     with open(corpus_path) as f:
@@ -382,10 +424,11 @@ def test_encode_special_token_double_newline_non_whitespace():
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
 
-def test_encode_iterable_tinystories_sample_roundtrip():
+def test_encode_iterable_tinystories_sample_roundtrip(tokenizer_name):
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
+        tokenizer_name=tokenizer_name,
     )
     all_ids = []
     with open(FIXTURES_PATH / "tinystories_sample.txt") as f:
@@ -396,10 +439,13 @@ def test_encode_iterable_tinystories_sample_roundtrip():
     assert tokenizer.decode(all_ids) == corpus_contents
 
 
-def test_encode_iterable_tinystories_matches_tiktoken():
+def test_encode_iterable_tinystories_matches_tiktoken(tokenizer_name):
     reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = get_tokenizer_from_vocab_merges_path(
-        vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_path=VOCAB_PATH,
+        merges_path=MERGES_PATH,
+        special_tokens=["<|endoftext|>"],
+        tokenizer_name=tokenizer_name,
     )
     corpus_path = FIXTURES_PATH / "tinystories_sample.txt"
     with open(corpus_path) as f:

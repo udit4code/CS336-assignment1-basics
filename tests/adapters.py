@@ -543,6 +543,7 @@ def get_tokenizer(
     vocab: dict[int, bytes],
     merges: list[tuple[bytes, bytes]],
     special_tokens: list[str] | None = None,
+    tokenizer_name: str = "v4",
 ) -> Any:
     """Given a vocabulary, a list of merges, and a list of special tokens,
     return a BPE tokenizer that uses the provided vocab, merges, and special tokens.
@@ -555,12 +556,26 @@ def get_tokenizer(
             Merges are ordered by order of creation.
         special_tokens (list[str] | None): A list of string special tokens for the tokenizer. These strings will never
             be split into multiple tokens, and will always be kept as a single token.
+        tokenizer_name (str): Which tokenizer implementation to instantiate. Supported values are
+            "v1", "v2", "v3", and "v4".
 
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    from cs336_basics.BPE.Tokenizer.v4 import TokenizerV4
-    return TokenizerV4(vocab, merges, special_tokens)
+    tokenizer_classes = {
+        "v1": ("cs336_basics.BPE.Tokenizer.v1", "NaiveTokenizer"),
+        "v2": ("cs336_basics.BPE.Tokenizer.v2", "TokenizerV2"),
+        "v3": ("cs336_basics.BPE.Tokenizer.v3", "TokenizerV3"),
+        "v4": ("cs336_basics.BPE.Tokenizer.v4", "TokenizerV4"),
+    }
+
+    if tokenizer_name not in tokenizer_classes:
+        raise ValueError(f"Unsupported tokenizer name: {tokenizer_name}")
+
+    module_name, class_name = tokenizer_classes[tokenizer_name]
+    module = __import__(module_name, fromlist=[class_name])
+    tokenizer_cls = getattr(module, class_name)
+    return tokenizer_cls(vocab, merges, special_tokens)
 
 
 def run_train_bpe(
