@@ -731,7 +731,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
 
 
 def run_get_batch(
-    dataset: npt.NDArray, batch_size: int, context_length: int, device: str
+    tokens: npt.NDArray, batch_size: int, context_length: int, device: str
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Given a dataset (a 1D numpy array of integers) and a desired batch size and
@@ -739,7 +739,7 @@ def run_get_batch(
     labels from the dataset.
 
     Args:
-        dataset (np.array): 1D numpy array of integer token IDs in the dataset.
+        tokens (np.array): 1D numpy array of integer token IDs in the dataset.
         batch_size (int): Desired batch size to sample.
         context_length (int): Desired context length of each sampled example.
         device (str): PyTorch device string (e.g., 'cpu' or 'cuda:0') indicating the device
@@ -750,7 +750,17 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    from cs336_basics.DataLoaderImplementation.Dataset import LanguageModelDataset
+    from cs336_basics.DataLoaderImplementation.get_batch import get_batch
+    lm_dataset = LanguageModelDataset(
+        tokens=tokens,
+        context_length=context_length
+    )
+    return get_batch(
+        dataset=lm_dataset, 
+        batch_size=batch_size,
+        device=device
+    )
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -915,10 +925,10 @@ def get_tokenizer(
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
     tokenizer_classes = {
-        "v1": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v1", "NaiveTokenizer"),
-        "v2": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v2", "TokenizerV2"),
-        "v3": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v3", "TokenizerV3"),
-        "v4": ("cs336_basics.SubWordEncoding.BPE_Tokenizer.v4", "TokenizerV4"),
+        "v1": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v1", "NaiveTokenizer"),
+        "v2": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v2", "TokenizerV2"),
+        "v3": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v3", "TokenizerV3"),
+        "v4": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v4", "TokenizerV4"),
     }
 
     if tokenizer_name not in tokenizer_classes:
@@ -957,7 +967,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.SubWordEncoding.BPE_Trainer.v2 import OptimisedBPETrainer
+    from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v2 import OptimisedBPETrainer
     return OptimisedBPETrainer().train(input_path, vocab_size, special_tokens)
 
 
@@ -988,5 +998,5 @@ def run_train_bpe_naive(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.SubWordEncoding.BPE_Trainer.v1 import train_bpe  
+    from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v1 import train_bpe  
     return train_bpe(input_path, vocab_size, special_tokens)

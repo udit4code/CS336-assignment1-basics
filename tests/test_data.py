@@ -18,7 +18,7 @@ def test_get_batch():
     num_iters = 1000
     for _ in range(num_iters):
         x, y = run_get_batch(
-            dataset=dataset,
+            tokens=dataset,
             batch_size=batch_size,
             context_length=context_length,
             device=device,
@@ -64,7 +64,7 @@ def test_get_batch():
         # Just adding this here to make sure that the device flag is
         # being handled.
         run_get_batch(
-            dataset=dataset,
+            tokens=dataset,
             batch_size=batch_size,
             context_length=context_length,
             device="cuda:99",
