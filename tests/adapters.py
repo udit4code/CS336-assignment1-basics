@@ -605,7 +605,61 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    from cs336_basics.TransformerImplementation.TransformerLanguageModelModule.TransformerLanguageModel import TransformerLM
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        theta=rope_theta,
+        device=in_indices.device,
+        dtype=weights["token_embeddings.weight"].dtype,
+    )
+
+    state_dict = {
+        "token_embedding.weight": weights["token_embeddings.weight"],
+        "final_norm.weight": weights["ln_final.weight"],
+        "lm_head.weight": weights["lm_head.weight"],
+    }
+
+    for layer in range(num_layers):
+        prefix = f"layers.{layer}"
+
+        state_dict[f"layers.{layer}.attention.q_proj.weight"] = \
+            weights[f"{prefix}.attn.q_proj.weight"]
+
+        state_dict[f"layers.{layer}.attention.k_proj.weight"] = \
+            weights[f"{prefix}.attn.k_proj.weight"]
+
+        state_dict[f"layers.{layer}.attention.v_proj.weight"] = \
+            weights[f"{prefix}.attn.v_proj.weight"]
+
+        state_dict[f"layers.{layer}.attention.out_proj.weight"] = \
+            weights[f"{prefix}.attn.output_proj.weight"]
+
+        state_dict[f"layers.{layer}.attention_norm.weight"] = \
+            weights[f"{prefix}.ln1.weight"]
+
+        state_dict[f"layers.{layer}.ffn_norm.weight"] = \
+            weights[f"{prefix}.ln2.weight"]
+
+        state_dict[f"layers.{layer}.feed_forward.gate_proj.weight"] = \
+            weights[f"{prefix}.ffn.w1.weight"]
+
+        state_dict[f"layers.{layer}.feed_forward.down_proj.weight"] = \
+            weights[f"{prefix}.ffn.w2.weight"]
+
+        state_dict[f"layers.{layer}.feed_forward.up_proj.weight"] = \
+            weights[f"{prefix}.ffn.w3.weight"]
+
+    model.load_state_dict(state_dict)
+
+    model.eval()
+
+    with torch.no_grad():
+        return model(in_indices)
 
 
 def run_rmsnorm(
