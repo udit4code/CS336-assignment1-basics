@@ -174,6 +174,31 @@ def run_swiglu(
     return swiglu(in_features)
     
 
+def run_scaled_dot_product_attention_with_einops(
+    Q: Float[Tensor, " ... queries d_k"],
+    K: Float[Tensor, " ... keys d_k"],
+    V: Float[Tensor, " ... keys d_v"],
+    mask: Bool[Tensor, " ... queries keys"] | None = None,
+) -> Float[Tensor, " ... queries d_v"]:
+    """
+    Given key (K), query (Q), and value (V) tensors, return
+    the output of your scaled dot product attention implementation.
+
+    Args:
+        Q (Float[Tensor, " ... queries d_k"]): Query tensor
+        K (Float[Tensor, " ... keys d_k"]): Key tensor
+        V (Float[Tensor, " ... keys d_v"]): Values tensor
+        mask (Bool[Tensor, " ... queries keys"] | None): Mask tensor
+    Returns:
+        Float[Tensor, " ... queries d_v"]: Output of SDPA
+    """
+    from cs336_basics.TransformerImplementation.ScaledDotProductAttentionModule.ScaledDotProductAttentionEinops import scaled_dot_product_attention_with_einops
+    return scaled_dot_product_attention_with_einops(
+        query=Q, 
+        key=K, 
+        value=V, 
+        mask=mask
+        )
 
 def run_scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],

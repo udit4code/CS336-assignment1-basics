@@ -53,6 +53,8 @@ def scaled_dot_product_attention(
     # Wherever mask == False, replace the score with -∞.
     # as, softmax(-∞) = 0, so those positions receive zero attention.
     if mask is not None:
+        # For tensor y, y.masked_fill(mask, value) returns a new tensor where every value of y corresponding to a True value in the boolean mask is replaced with value. 
+        # Elements where the mask is False are left unchanged. The input tensor y is not modified (unless you use the in-place version masked_fill_()).
         scores = scores.masked_fill(
             ~mask,
             float("-inf"),

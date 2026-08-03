@@ -14,6 +14,7 @@ from .adapters import (
     run_rope,
     run_rope_with_einops, 
     run_scaled_dot_product_attention,
+    run_scaled_dot_product_attention_with_einops,
     run_silu,
     run_swiglu_with_einops,
     run_swiglu,
@@ -90,6 +91,13 @@ def test_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
         actual_output,
         atol=1e-5,
     )
+    
+def test_scaled_dot_product_attention_with_einops(numpy_snapshot, q, k, v, mask):
+    actual_output = run_scaled_dot_product_attention_with_einops(Q=q, K=k, V=v, mask=mask)
+    numpy_snapshot.assert_match(
+        actual_output,
+        atol=1e-5,
+    )
 
 
 def test_4d_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
@@ -98,6 +106,17 @@ def test_4d_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
     mask = rearrange(mask, "(batch head) query key -> batch head query key", head=2)
 
     actual_output = run_scaled_dot_product_attention(Q=q, K=k, V=v, mask=mask)
+    numpy_snapshot.assert_match(
+        actual_output,
+        atol=1e-5,
+    )
+    
+def test_4d_scaled_dot_product_attention_with_einops(numpy_snapshot, q, k, v, mask):
+    # Shape: (batch_size, num_heads, seq_len, d_k)
+    q, k, v = (rearrange(x, "(batch head) seq d -> batch head seq d", head=2) for x in (q, k, v))
+    mask = rearrange(mask, "(batch head) query key -> batch head query key", head=2)
+
+    actual_output = run_scaled_dot_product_attention_with_einops(Q=q, K=k, V=v, mask=mask)
     numpy_snapshot.assert_match(
         actual_output,
         atol=1e-5,
