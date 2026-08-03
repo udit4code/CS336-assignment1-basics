@@ -12,6 +12,7 @@ from .adapters import (
     run_rmsnorm,
     run_rmsnorm_with_reduce,
     run_rope,
+    run_rope_with_einops, 
     run_scaled_dot_product_attention,
     run_silu,
     run_swiglu_with_einops,
@@ -224,6 +225,12 @@ def test_rmsnorm_with_reduce(numpy_snapshot, ts_state_dict, in_embeddings):
 
 def test_rope(numpy_snapshot, in_embeddings, d_model, theta, n_queries, pos_ids):
     output = run_rope(
+        d_model, theta=theta, max_seq_len=n_queries, in_query_or_key=in_embeddings, token_positions=pos_ids
+    )
+    numpy_snapshot.assert_match(output, atol=1e-5)
+    
+def test_rope_with_einops(numpy_snapshot, in_embeddings, d_model, theta, n_queries, pos_ids):
+    output = run_rope_with_einops(
         d_model, theta=theta, max_seq_len=n_queries, in_query_or_key=in_embeddings, token_positions=pos_ids
     )
     numpy_snapshot.assert_match(output, atol=1e-5)

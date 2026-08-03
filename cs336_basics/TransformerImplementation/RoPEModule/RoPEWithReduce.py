@@ -3,7 +3,7 @@ import torch.nn as nn
 from einops import rearrange
 
 
-class RotaryPositionalEmbedding(nn.Module):
+class RotaryPositionalEmbeddingWithReduce(nn.Module):
     def __init__(
         self,
         theta: float,
