@@ -88,6 +88,49 @@ def run_embedding(
     return embedding(token_ids)
 
 
+def run_swiglu_with_einops(
+    d_model: int,
+    d_ff: int,
+    w1_weight: Float[Tensor, " d_ff d_model"],
+    w2_weight: Float[Tensor, " d_model d_ff"],
+    w3_weight: Float[Tensor, " d_ff d_model"],
+    in_features: Float[Tensor, " ... d_model"],
+) -> Float[Tensor, " ... d_model"]:
+    """Given the weights of a SwiGLU network, return
+    the output of your implementation with these weights.
+
+    Args:
+        d_model (int): Dimensionality of the feedforward input and output.
+        d_ff (int): Dimensionality of the up-project happening internally to your swiglu.
+        w1_weight (Float[Tensor, "d_ff d_model"]): Stored weights for W1
+        w2_weight (Float[Tensor, "d_model d_ff"]): Stored weights for W2
+        w3_weight (Float[Tensor, "d_ff d_model"]): Stored weights for W3
+        in_features (Float[Tensor, "... d_model"]): Input embeddings to the feed-forward layer.
+
+    Returns:
+        Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
+    """
+    # Example:
+    # If your state dict keys match, you can use `load_state_dict()`
+    # swiglu.load_state_dict(weights)
+    # You can also manually assign the weights
+    # swiglu.w1.weight.data = w1_weight
+    # swiglu.w2.weight.data = w2_weight
+    # swiglu.w3.weight.data = w3_weight
+    from cs336_basics.TransformerImplementation.PositionWiseFeedForwardModule.SwiGLULayerEinops import SwiGLUEinops
+    swiglu = SwiGLUEinops(d_model, d_ff)
+
+    swiglu.load_state_dict(
+        {
+            "gate_proj.weight": w1_weight,
+            "up_proj.weight": w3_weight,
+            "down_proj.weight": w2_weight,
+        }
+    )
+
+    return swiglu(in_features)
+
+
 def run_swiglu(
     d_model: int,
     d_ff: int,
