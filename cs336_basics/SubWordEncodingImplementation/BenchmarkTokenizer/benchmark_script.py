@@ -9,7 +9,7 @@ from pathlib import Path
 
 import tiktoken
 
-from ..Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4
+from ..BPE_Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VOCAB_PATH = REPO_ROOT / "data" / "gpt2_vocab.json"
