@@ -86,8 +86,8 @@ class BaseTokenizer(ABC):
             if chunk in self.special_to_id:
                 ids.append(self.special_to_id[chunk])
                 continue
-            for match in GPT2_PRETOKENIZER.finditer(chunk):
-                ids.extend(self._encode_pretoken(match.group()))
+            pretokens = (match.group() for match in GPT2_PRETOKENIZER.finditer(chunk))
+            ids.extend(self._encode_pretokens(pretokens))
 
         return ids
 
@@ -99,6 +99,12 @@ class BaseTokenizer(ABC):
     def decode(self, ids: Sequence[int]) -> str:
         data = b"".join(self.id_to_token[token_id] for token_id in ids)
         return data.decode("utf-8", errors="replace")
+
+    def _encode_pretokens(self, pretokens: Iterable[str]) -> list[int]:
+        ids: list[int] = []
+        for pretoken in pretokens:
+            ids.extend(self._encode_pretoken(pretoken))
+        return ids
 
     @abstractmethod
     def _encode_pretoken(self, pretoken: str) -> list[int]:

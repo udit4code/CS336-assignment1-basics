@@ -9,6 +9,7 @@ dependencies = [
     "einx>=0.4",        # more general tensor operations
     "jaxtyping>=0.3",   # type hints for pytorch/jax/numpy
     "numpy>=2.4",
+    "pybind11>=2.13",
     "psutil>=7",
     "pytest>=9.0",
     "pytest-timeout",

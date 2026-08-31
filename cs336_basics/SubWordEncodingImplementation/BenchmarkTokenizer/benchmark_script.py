@@ -10,7 +10,7 @@ from pathlib import Path
 
 import tiktoken
 
-from ..BPE_Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4
+from ..BPE_Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4, TokenizerV5
 from ..BPE_Tokenizer.base import GPT2_PRETOKENIZER
 from ..BPE_Tokenizer.byte_mapping import decode_gpt2_token
 
@@ -30,6 +30,7 @@ TOKENIZERS = {
     "V2": TokenizerV2,
     "V3": TokenizerV3,
     "V4": TokenizerV4,
+    "V5 (C++)": TokenizerV5,
 }
 
 

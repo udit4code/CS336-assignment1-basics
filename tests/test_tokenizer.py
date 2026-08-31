@@ -16,7 +16,7 @@ from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
 VOCAB_PATH = FIXTURES_PATH / "gpt2_vocab.json"
 MERGES_PATH = FIXTURES_PATH / "gpt2_merges.txt"
-TOKENIZER_NAMES = ["v1", "v2", "v3", "v4"]
+TOKENIZER_NAMES = ["v1", "v2", "v3", "v4", "v5"]
 
 
 @pytest.fixture(params=TOKENIZER_NAMES, ids=TOKENIZER_NAMES)

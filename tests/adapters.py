@@ -932,7 +932,7 @@ def get_tokenizer(
         special_tokens (list[str] | None): A list of string special tokens for the tokenizer. These strings will never
             be split into multiple tokens, and will always be kept as a single token.
         tokenizer_name (str): Which tokenizer implementation to instantiate. Supported values are
-            "v1", "v2", "v3", and "v4".
+            "v1", "v2", "v3", "v4", and "v5".
 
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
@@ -942,6 +942,7 @@ def get_tokenizer(
         "v2": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v2", "TokenizerV2"),
         "v3": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v3", "TokenizerV3"),
         "v4": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v4", "TokenizerV4"),
+        "v5": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v5", "TokenizerV5"),
     }
 
     if tokenizer_name not in tokenizer_classes:
