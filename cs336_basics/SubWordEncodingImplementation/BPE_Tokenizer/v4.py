@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import heapq
-from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Optional
 
-from .base import BaseTokenizer, GPT2_PRETOKENIZER
+from .base import BaseTokenizer
 
 
 
@@ -34,9 +32,9 @@ class Node:
     """
 
     value: bytes
-
-    prev: Optional["Node"] = None
-    next: Optional["Node"] = None
+    position: int
+    prev: Node | None = None
+    next: Node | None = None
 
     # Lazy deletion.
     #
@@ -60,14 +58,14 @@ class HeapEntry:
     Ordering is determined ONLY by
 
         rank
-        node_id
+        position
 
     The node itself is excluded from comparisons.
     """
 
     rank: int
 
-    node_id: int
+    position: int
 
     left: Node = field(compare=False) 
     
@@ -140,12 +138,12 @@ class TokenizerV4(BaseTokenizer):
         if not data:
             return None
 
-        head = Node(bytes([data[0]]))
+        head = Node(bytes([data[0]]), position=0)
         prev = head
 
-        for b in data[1:]:
+        for position, b in enumerate(data[1:], start=1):
 
-            node = Node(bytes([b]))
+            node = Node(bytes([b]), position=position)
 
             prev.next = node
             node.prev = prev
@@ -215,7 +213,7 @@ class TokenizerV4(BaseTokenizer):
                     heap,
                     HeapEntry(
                         rank=rank,
-                        node_id=id(node),
+                        position=node.position,
                         left=node,
                     ),
                 )
@@ -307,7 +305,7 @@ class TokenizerV4(BaseTokenizer):
             heap,
             HeapEntry(
                 rank=rank,
-                node_id=id(left),
+                position=left.position,
                 left=left,
             ),
         ) 
@@ -334,6 +332,7 @@ class TokenizerV4(BaseTokenizer):
 
         merged = Node(
             value=left.value + right.value,
+            position=left.position,
         )
 
         #
@@ -484,38 +483,3 @@ class TokenizerV4(BaseTokenizer):
         # into token ids.
         #
         return self._collect_ids(head)
-    
-    
-    def encode(self, text: str) -> list[int]:
-        if self.special_pattern is None:
-            chunks = [text]
-        else:
-            chunks = self.special_pattern.split(text)
-
-        ids: list[int] = []
-
-        for chunk in chunks:
-            if chunk == "":
-                continue
-
-            if chunk in self.special_to_id:
-                ids.append(self.special_to_id[chunk])
-                continue
-
-            for pretoken in GPT2_PRETOKENIZER.findall(chunk):
-                ids.extend(self._encode_pretoken(pretoken))
-
-        return ids
-
-    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        for text in iterable:
-            yield from self.encode(text)
-
-    def decode(self, ids: list[int]) -> str:
-        return (
-            b"".join(
-                self.id_to_token[token_id]
-                for token_id in ids
-            )
-            .decode("utf-8", errors="replace")
-        )
