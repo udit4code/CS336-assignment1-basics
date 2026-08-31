@@ -1,3 +1,6 @@
+import math
+from numbers import Integral, Real
+
 import torch
 import torch.nn as nn
 from einops import rearrange
@@ -13,7 +16,26 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
     ):
         super().__init__()
 
-        assert d_k % 2 == 0
+        if not isinstance(theta, Real) or isinstance(theta, bool):
+            raise TypeError(f"theta must be a real number, got {type(theta).__name__}")
+        if not math.isfinite(theta) or theta <= 0:
+            raise ValueError(f"theta must be finite and positive, got {theta}")
+
+        if not isinstance(d_k, Integral) or isinstance(d_k, bool):
+            raise TypeError(f"d_k must be an integer, got {type(d_k).__name__}")
+        if d_k <= 0 or d_k % 2 != 0:
+            raise ValueError(f"d_k must be a positive even integer, got {d_k}")
+
+        if not isinstance(max_seq_len, Integral) or isinstance(max_seq_len, bool):
+            raise TypeError(
+                f"max_seq_len must be an integer, got {type(max_seq_len).__name__}"
+            )
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")
+
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
 
         # Compute one inverse frequency per 2D rotation block. Shape: (d_k/2,)
         freq_seq = torch.arange(
@@ -61,11 +83,78 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
         token_positions: torch.Tensor,
     ) -> torch.Tensor:
 
+        if not isinstance(x, torch.Tensor):
+            raise TypeError(f"x must be a torch.Tensor, got {type(x).__name__}")
+        if x.ndim < 2:
+            raise ValueError(
+                f"x must have shape (..., seq_len, d_k), got shape {tuple(x.shape)}"
+            )
+        if not x.is_floating_point():
+            raise TypeError(f"x must be floating point, got dtype {x.dtype}")
+        if x.shape[-1] != self.d_k:
+            raise ValueError(
+                f"Expected x.shape[-1] == d_k == {self.d_k}, got {x.shape[-1]}"
+            )
+
+        if not isinstance(token_positions, torch.Tensor):
+            raise TypeError(
+                "token_positions must be a torch.Tensor, "
+                f"got {type(token_positions).__name__}"
+            )
+        if token_positions.dtype not in (torch.int32, torch.int64):
+            raise TypeError(
+                "token_positions must have dtype torch.int32 or torch.int64, "
+                f"got {token_positions.dtype}"
+            )
+        if token_positions.ndim < 1:
+            raise ValueError("token_positions must have at least one dimension")
+        if token_positions.ndim > x.ndim - 1:
+            raise ValueError(
+                "token_positions has too many dimensions for x: "
+                f"got {token_positions.ndim} and {x.ndim}, respectively"
+            )
+        if token_positions.shape[-1] != x.shape[-2]:
+            raise ValueError(
+                "token_positions and x must have the same sequence length, got "
+                f"{token_positions.shape[-1]} and {x.shape[-2]}"
+            )
+        if x.device != self.cos_cached.device:
+            raise ValueError(
+                f"x is on {x.device}, but the RoPE cache is on {self.cos_cached.device}"
+            )
+        if token_positions.device != self.cos_cached.device:
+            raise ValueError(
+                "token_positions and the RoPE cache must be on the same device, got "
+                f"{token_positions.device} and {self.cos_cached.device}"
+            )
+        if token_positions.numel() > 0:
+            min_position = int(token_positions.min().item())
+            max_position = int(token_positions.max().item())
+            if min_position < 0 or max_position >= self.max_seq_len:
+                raise ValueError(
+                    "token_positions must lie in "
+                    f"[0, {self.max_seq_len}), got range [{min_position}, {max_position}]"
+                )
+
         # x has Shape: (..., seq_len, d_k)
         # Select the cosine/sine values corresponding to the token positions.
         # cos_cached: (max_seq_len, d_k/2) becomes (..., seq_len, d_k/2)
         cos = self.cos_cached[token_positions]
         sin = self.sin_cached[token_positions]
+        
+        while cos.ndim < x.ndim:
+            cos = cos.unsqueeze(-3)
+            sin = sin.unsqueeze(-3)
+
+        rotary_input_shape = (*x.shape[:-1], self.d_k // 2)
+        try:
+            torch.broadcast_shapes(rotary_input_shape, cos.shape)
+        except RuntimeError as error:
+            raise ValueError(
+                "token_positions leading dimensions are not broadcastable with x: "
+                f"got gathered cache shape {tuple(cos.shape)} and "
+                f"rotary input shape {rotary_input_shape}"
+            ) from error
 
 
         # Rearrange the last dimension into pairs.

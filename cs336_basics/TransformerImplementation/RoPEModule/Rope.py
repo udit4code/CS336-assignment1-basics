@@ -1,3 +1,6 @@
+import math
+from numbers import Integral, Real
+
 import torch
 import torch.nn as nn
 
@@ -12,7 +15,22 @@ class RotaryPositionalEmbedding(nn.Module):
     ):
         super().__init__()
 
-        assert d_k % 2 == 0, "d_k must be even."
+        if not isinstance(theta, Real) or isinstance(theta, bool):
+            raise TypeError(f"theta must be a real number, got {type(theta).__name__}")
+        if not math.isfinite(theta) or theta <= 0:
+            raise ValueError(f"theta must be finite and positive, got {theta}")
+
+        if not isinstance(d_k, Integral) or isinstance(d_k, bool):
+            raise TypeError(f"d_k must be an integer, got {type(d_k).__name__}")
+        if d_k <= 0 or d_k % 2 != 0:
+            raise ValueError(f"d_k must be a positive even integer, got {d_k}")
+
+        if not isinstance(max_seq_len, Integral) or isinstance(max_seq_len, bool):
+            raise TypeError(
+                f"max_seq_len must be an integer, got {type(max_seq_len).__name__}"
+            )
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")
 
         self.theta = theta
         self.d_k = d_k
@@ -48,8 +66,7 @@ class RotaryPositionalEmbedding(nn.Module):
 
         # θ_{i,k} = i / theta^(2k/d_k) : The angle θ_{i,k} depends on token position i and embedding pair index k, both of which are independent of each other.
         # Why did we do an outer product ? To understand it, inv_freq = [1, 0.1, 0.01, 0.001] with theta = 10000 and d_k = 8 and positions = [0, 1, 2, 3] for a 4-token sequence. 
-        # So, all we are doing is positions x inv_freq. positions is a (1 x 4) row vector and inv_freq is also a 1 x 4 row_vector. 
-        # We want to capture every combination of i and k. 
+        # We want every position-frequency combination. torch.outer treats both one-dimensional inputs as vectors and returns a matrix.
         #      1     0.1    0.01   0.001
         # 0
         # 1
@@ -69,17 +86,15 @@ class RotaryPositionalEmbedding(nn.Module):
         
         
         # Why use register_buffer for cosine and sine values of angles ? 
-        # Every tensor insider an nn.Module falls into one of 3 categories : 
-        # 1. Parameters : learned during trainin. For them, we use nn.Parameter because we want gradient descent to update it.
-        # 2. Buffers : part of the model's state, but not learned (heance, has no gradients).
+        # Every tensor inside an nn.Module falls into one of 3 categories:
+        # 1. Parameters: learned during training. We use nn.Parameter because gradient descent should update them.
+        # 2. Buffers: model-owned tensors that are not learned.
         # 3. Ordinary attributes : just vanilla Python variables
         # Here, torch.cos(angles) and torch.sin(angles) should not be learned and optimized by gradient descent. 
         # Instead, we want them to be reused in every forward pass, so that we don't recompute it. That is why, we store it in some cache for reuse : Caching 101. 
-        # But, why not do self.cos_cached = torch.cos(angles) ? Say, we decide to do model.to("cuda"), due to which we move the model to GPU. 
-        # In this process, only nn.Parameter objects moves, while self.cos_cached stays on the CPU. As a result, we end up getting : "Expected all tensors to be on the same device".
-        # Therefore, when we do register_buffer("cos_cached", torch.cos(angles)), PyTorch knows that this tensor cos_cached belongs to the module and unlike parameters, it need not be optimized, BUT, it needs to be moved to GPU too. 
-        # Moreover, when we do torch.save(model.state_dict(), "model.pt") , what gets saved ? Only nn.Parameter objects and buffer objects, while ordinary attributes do not get saved.
-        # Also, because cos_cached is registered as a buffer, cos_cached.requires_grad = False always, so that it does not get updated during backpropagation.
+        # But why not use an ordinary tensor attribute? model.to(device) moves registered parameters and buffers, not arbitrary tensor attributes.
+        # A registered buffer therefore follows the module's device. Persistent buffers are included in state_dict; these caches are explicitly
+        # non-persistent below because theta, d_k, and max_seq_len are sufficient to reconstruct them.
         self.register_buffer(
             "cos_cached",
             torch.cos(angles),
@@ -104,6 +119,59 @@ class RotaryPositionalEmbedding(nn.Module):
         token_positions: torch.Tensor,
     ) -> torch.Tensor:
 
+        if not isinstance(x, torch.Tensor):
+            raise TypeError(f"x must be a torch.Tensor, got {type(x).__name__}")
+        if x.ndim < 2:
+            raise ValueError(
+                f"x must have shape (..., seq_len, d_k), got shape {tuple(x.shape)}"
+            )
+        if not x.is_floating_point():
+            raise TypeError(f"x must be floating point, got dtype {x.dtype}")
+        if x.shape[-1] != self.d_k:
+            raise ValueError(
+                f"Expected x.shape[-1] == d_k == {self.d_k}, got {x.shape[-1]}"
+            )
+
+        if not isinstance(token_positions, torch.Tensor):
+            raise TypeError(
+                "token_positions must be a torch.Tensor, "
+                f"got {type(token_positions).__name__}"
+            )
+        if token_positions.dtype not in (torch.int32, torch.int64):
+            raise TypeError(
+                "token_positions must have dtype torch.int32 or torch.int64, "
+                f"got {token_positions.dtype}"
+            )
+        if token_positions.ndim < 1:
+            raise ValueError("token_positions must have at least one dimension")
+        if token_positions.ndim > x.ndim - 1:
+            raise ValueError(
+                "token_positions has too many dimensions for x: "
+                f"got {token_positions.ndim} and {x.ndim}, respectively"
+            )
+        if token_positions.shape[-1] != x.shape[-2]:
+            raise ValueError(
+                "token_positions and x must have the same sequence length, got "
+                f"{token_positions.shape[-1]} and {x.shape[-2]}"
+            )
+        if x.device != self.cos_cached.device:
+            raise ValueError(
+                f"x is on {x.device}, but the RoPE cache is on {self.cos_cached.device}"
+            )
+        if token_positions.device != self.cos_cached.device:
+            raise ValueError(
+                "token_positions and the RoPE cache must be on the same device, got "
+                f"{token_positions.device} and {self.cos_cached.device}"
+            )
+        if token_positions.numel() > 0:
+            min_position = int(token_positions.min().item())
+            max_position = int(token_positions.max().item())
+            if min_position < 0 or max_position >= self.max_seq_len:
+                raise ValueError(
+                    "token_positions must lie in "
+                    f"[0, {self.max_seq_len}), got range [{min_position}, {max_position}]"
+                )
+
         # x shape: (..., seq_len, d_k) = (batch_size, seq_len, d_k) = (2, 3, 8). 
         # So, x has 2 batches and each batch has 3 embedding. Each embedding is a 8-dimensional vector.  
         # Eg : one token embedding can be visualised as = [x0, x1, x2, x3, x4, x5, x6, x7], which gets grouped into pairs : (x0, x1) , (x2, x3), (x4, x5) and (x6, x7). 
@@ -116,6 +184,29 @@ class RotaryPositionalEmbedding(nn.Module):
         # So, shape of seq_cos = (batch_size, seq_len, d_k/2) -> meaning : exactly one cosine value for every embedding pair in a given token vector within a chosen batch. 
         seq_cos = self.cos_cached[token_positions]
         seq_sin = self.sin_cached[token_positions]
+        
+        # Add missing broadcast dimensions immediately before the sequence and rotary-pair dimensions.
+        # Why ? Because, The language model creates positions with shape (B,S), while attention tensors have shape (B,H,S,K). 
+        # So, tensor needs a singleton head dimension. 
+        # Thus, we insert a singleton head dimension into the gathered cosine and sine tensors inside RoPE.
+        # 
+        # Common multi-head case:
+        # x:         (B, H, S, K)
+        # seq_cos:   (B,    S, K/2)
+        # after unsqueeze operation on seq_cos and seq_sin :     (B, 1, S, K/2)
+        # As a result, x_even:  (B, H, S, K/2) and seq_cos: (B, 1, S, K/2) both multiply elementwise properly via broadcasting
+        while seq_cos.ndim < x.ndim:
+            seq_cos = seq_cos.unsqueeze(-3)
+            seq_sin = seq_sin.unsqueeze(-3)
+
+        try:
+            torch.broadcast_shapes(x[..., 0::2].shape, seq_cos.shape)
+        except RuntimeError as error:
+            raise ValueError(
+                "token_positions leading dimensions are not broadcastable with x: "
+                f"got gathered cache shape {tuple(seq_cos.shape)} and "
+                f"rotary input shape {tuple(x[..., 0::2].shape)}"
+            ) from error
 
         # (..., seq_len, d_k/2) -> This means slicing. 
         # Say, x = [10, 20, 30, 40, 50, 60, 70, 80]
@@ -158,19 +249,19 @@ class RotaryPositionalEmbedding(nn.Module):
         # So, for just rotation matrices, we need 256 MB. 
         # With the current implementation, where we do not materialize the rotation matrix, we use cos_cached ans sin_cached, each of which is (max_seq_len, d_k/2) 
         # So, memory = max_seq_len x d_k/2 x 2 x size of float32 = 4096 x 128/2 x 2 x 4 B = 2^12 x 2^7 x 2^2 = 2^21 B = 2 MB 
-        # So, we have reduced runtime memory for computation by : 256 / 2 = 128 -> 100 times ! 
+        # The cache is therefore 128 times smaller than materializing every full rotation matrix in this example.
         
-        # But, torch.empty_like(x) creates an empty tensor , whose shape is (batch_size, max_seq_len, d_k). Its memory = 8 x 4096 x 128 x 4 B = 2^(3 + 12 + 7 + 2) = 2^24 = 16 MB 
-        # This allocation is unavoidable because the output of RoPE has to be a new tensor. Every output in a neural network produces an output tensor. 
+        # torch.empty_like(x) has exactly x.shape, which contains the current sequence length—not necessarily max_seq_len.
+        # This implementation allocates a separate output tensor; a fused attention kernel may avoid materializing a standalone RoPE output.
         # The expensive object is not the out tensor, it is the materialized rotation matrix. Had we opted for the materialized rotation matrix approach, how many FLOPs would we need ? 
         # d_k x d_k multiply-adds per token. So, 128 x 128 = 2^14 = 16384 multiply-adds per token = 16384 x 2 FLOPS = 32768 FLOPS per token. 
-        # A multiply-add operation is a x b + c (also known as fused multiply addition), which modern GPU can perform as a single hardware instruction.
+        # A fused multiply-add computes a*b+c as one hardware instruction, but is conventionally counted as two FLOPs: one multiply and one add.
         # Why ? Because matrix multiplication, under the hood, does : a_1 x b_1 + a_2 x b_2 + a_3 x b_3 + ... . This can be viewed as : 
         # sum = 0
         # sum = a_1 x b_1 + sum 
         # sum = a_2 x b_2 + sum 
         # sum = a_3 x b_3 + sum 
-        # ... and so on. So, every line is a single multiply + add , which can be done in 1 FLOP via Fused Multiply Add (FMA instruction). Each FMA consumes 2 FLOPs. 
+        # ... and so on. Each line can map to one FMA instruction and counts as two FLOPs.
         # When we opt for the current implementation, per token, for each pair, we would need 2 multiplications + 1 addition for x' and y' = 4 multiplications + 2 additions. Per token, We have d_k/2 = 128/2 = 64 pairs. 
         # So, we would need : 64 x (4 multiplications + 2 additions) = 256 multiplications + 128 additions. Each multiplication and addition individually consume 1 FLOP. 
         # Thus, per token, we have : 256 x 1 + 128 x 1 = 384 FLOPs
