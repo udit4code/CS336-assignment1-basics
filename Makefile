@@ -27,10 +27,13 @@ $(NATIVE_TARGET): $(NATIVE_SOURCE)
 test-v5: native
 	$(PYTHON) -m pytest tests/test_tokenizer.py -k v5 -v
 
+test-v6: native
+	$(PYTHON) -m pytest tests/test_tokenizer.py -k v6 -v
+
 benchmark-tokenizers: native
 	$(PYTHON) -m cs336_basics.SubWordEncodingImplementation.BenchmarkTokenizer.benchmark_script
 
 clean-native:
 	rm -f $(PACKAGE_DIR)/_bpe_native*.so $(PACKAGE_DIR)/_bpe_native*.dylib
 
-.PHONY: native test-v5 benchmark-tokenizers clean-native
+.PHONY: native test-v5 test-v6 benchmark-tokenizers clean-native

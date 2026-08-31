@@ -10,7 +10,7 @@ from pathlib import Path
 
 import tiktoken
 
-from ..BPE_Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4, TokenizerV5
+from ..BPE_Tokenizer import TokenizerV1, TokenizerV2, TokenizerV3, TokenizerV4, TokenizerV5, TokenizerV6
 from ..BPE_Tokenizer.base import GPT2_PRETOKENIZER
 from ..BPE_Tokenizer.byte_mapping import decode_gpt2_token
 
@@ -25,12 +25,21 @@ REPEAT = 10
 SPECIAL_TOKENS = ["<|endoftext|>"]
 
 
+class TokenizerV6NoCache(TokenizerV6):
+    """Expose V6's heap cost separately from its pretoken cache benefit."""
+
+    def __init__(self, vocab, merges, special_tokens=None):
+        super().__init__(vocab, merges, special_tokens, cache_capacity=0)
+
+
 TOKENIZERS = {
     "V1": TokenizerV1,
     "V2": TokenizerV2,
     "V3": TokenizerV3,
     "V4": TokenizerV4,
     "V5 (C++)": TokenizerV5,
+    "V6 heap": TokenizerV6NoCache,
+    "V6 heap+LRU": TokenizerV6,
 }
 
 

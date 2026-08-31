@@ -54,6 +54,7 @@ class BaseTokenizer(ABC):
         vocab_filepath: str | Path,
         merges_filepath: str | Path,
         special_tokens: list[str] | None = None,
+        **tokenizer_kwargs: object,
     ) -> BaseTokenizer:
         """Load GPT-2-formatted vocabulary and merge files."""
         with open(vocab_filepath, encoding="utf-8") as f:
@@ -74,7 +75,7 @@ class BaseTokenizer(ABC):
                 left, right = cleaned_line.split()
                 merges.append((decode_gpt2_token(left), decode_gpt2_token(right)))
 
-        return cls(vocab, merges, special_tokens)
+        return cls(vocab, merges, special_tokens, **tokenizer_kwargs)
 
     def encode(self, text: str) -> list[int]:
         ids: list[int] = []

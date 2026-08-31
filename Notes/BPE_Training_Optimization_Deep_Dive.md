@@ -1,8 +1,8 @@
-# BPE Tokenization Optimization: From V1 to V5
+# BPE Tokenization Optimization: From V1 to V6
 
 > A living, first-principles revision guide to the BPE tokenizer implementations in this repository.
 >
-> Despite this file’s historical name, V1–V5 optimize **encoding/tokenization**, not BPE training. Training learns a vocabulary and ordered merge list; these implementations apply that fixed state to new text.
+> Despite this file’s historical name, V1–V6 optimize **encoding/tokenization**, not BPE training. Training learns a vocabulary and ordered merge list; these implementations apply that fixed state to new text.
 
 ---
 
@@ -21,7 +21,7 @@
 11. Why Big-O did not predict the benchmark
 12. Correctness traps
 13. Where time and memory go
-14. A possible V6
+14. V6: compact native heap plus bounded LRU
 15. Commands, revision questions, and final model
 16. The complete lifecycle: training, loading, tokenizing, and tiktoken
 
@@ -65,9 +65,11 @@ V3  Put candidates in a heap, but rebuild it after every merge
 V4  Preserve the heap and update only the local neighborhood
  ↓
 V5  Represent symbols as integers and run the hot loop in C++
+ ↓
+V6  Combine a compact native heap with bounded pretoken reuse
 ```
 
-The surprising result is that V4 has the strongest Python-level structural complexity, but V5 deliberately returns to a simpler V2-style scan. Natural-language pretokens are short, so a simple compiled loop can beat sophisticated Python object machinery.
+The surprising result is that V4 has the strongest Python-level structural complexity, but V5 deliberately returns to a simpler V2-style scan. V6 then reintroduces persistent local updates only after moving them into compact native arrays, and adds a bounded cache for repeated pretokens. The best version depends on whether inputs are tiny, long, cold, or repeated.
 
 ---
 
@@ -107,7 +109,7 @@ Smaller rank means earlier learned and higher priority.
 | Training | Highest corpus frequency, with a defined tie-break | Corpus representation and learned rules |
 | Tokenization | Smallest existing merge rank | One input pretoken’s segmentation |
 
-Both phases merge adjacent symbols, which causes the naming confusion. V1–V5 optimize the second row.
+Both phases merge adjacent symbols, which causes the naming confusion. V1–V6 optimize the second row.
 
 ---
 
@@ -713,19 +715,22 @@ This is part of the remaining gap to tiktoken.
 | V3 | Rebuild heap, pop once | Slice/rebuild list | `O(L² log L)` worst case | Heap state discarded |
 | V4 | Persistent heap | Linked-list rewiring | `O(L log L)` structurally | Python object overhead; byte copying remains |
 | V5 | Native scan of ID pairs | Native vector erase | `O(L²)` worst case | Python pretokenization and quadratic core remain |
+| V6 | Persistent native heap | Array-backed links | `O(L log L)` structurally | Higher constants on tiny cold pretokens |
 
 ### Measured smoke benchmark
 
-On the repository’s 482-byte TinyStories sample with five repetitions:
+On the repository’s 482-byte TinyStories sample with ten repetitions:
 
 | Implementation | Encode time | Tokens/second | MB/second |
 |---|---:|---:|---:|
-| V1 | 416.32 ms | 288 | ~0.00 |
-| V2 | 0.27 ms | 451,410 | 1.81 |
-| V3 | 0.24 ms | 508,744 | 2.04 |
-| V4 | 0.59 ms | 202,048 | 0.81 |
-| V5 C++ | 0.04 ms | 2,932,765 | 11.78 |
-| tiktoken | 0.03 ms | 4,682,928 | 18.81 |
+| V1 | 427.79 ms | 281 | ~0.00 |
+| V2 | 0.26 ms | 464,666 | 1.87 |
+| V3 | 0.27 ms | 440,333 | 1.77 |
+| V4 | 0.65 ms | 184,918 | 0.74 |
+| V5 C++ | 0.05 ms | 2,618,172 | 10.52 |
+| V6 heap, cache disabled | 0.08 ms | 1,569,058 | 6.30 |
+| V6 heap + warm LRU | 0.03 ms | 3,573,181 | 14.35 |
+| tiktoken | 0.03 ms | 3,931,718 | 15.79 |
 
 Treat this as a smoke test, not a universal ranking:
 
@@ -741,7 +746,8 @@ Robust conclusions:
 2. Rebuilding a heap does not create a reliable win in V3.
 3. V4’s Python object overhead dominates for ordinary short pretokens.
 4. A batched native integer loop gives V5 a large constant-factor gain.
-5. A mature end-to-end native implementation still outperforms V5.
+5. V6 trades higher tiny-input heap cost for better long-input scaling and cached repetition.
+6. A mature end-to-end native implementation still wins on the measured sample.
 
 ---
 
@@ -864,53 +870,127 @@ BPE cannot merge across GPT-2 regex pretokens.
 
 V5 reserves output capacity equal to total input bytes. This is a safe upper bound because merging can only reduce the initial one-symbol-per-byte count.
 
+### V6
+
+- Compact `V6Node` arrays rather than Python node objects.
+- Persistent native heap entries.
+- Generation checks for lazy invalidation.
+- Mutex-protected LRU lookup and result copying.
+- Python regex and Python/native conversion still remain.
+
 ---
 
-## 14. A possible V6
+## 14. V6: compact native heap plus bounded LRU
 
-### Bounded pretoken cache
+V6 implements the two most important recommendations from the earlier design analysis:
 
-Natural text repeats words. Cache:
+1. Preserve V4’s local-update algorithm inside compact C++ data structures.
+2. Avoid recomputing BPE for repeated pretokens with a bounded cache.
+
+### Array-backed linked structure
+
+Each input byte receives one entry in a contiguous `std::vector<V6Node>`:
+
+```cpp
+struct V6Node {
+    TokenId value;
+    std::int32_t prev;
+    std::int32_t next;
+    std::uint32_t generation;
+    bool alive;
+};
+```
+
+`prev` and `next` are integer indices, not pointers to separately allocated objects. Merging keeps the left slot, replaces its token ID with the result ID, links it around the right slot, and marks the right slot dead.
+
+This retains V4’s constant-time structural update while improving locality and eliminating Python node allocation.
+
+### Persistent native candidate heap
+
+Candidate entries store:
+
+```text
+rank
+original left position
+left and right node indices
+captured left and right generation numbers
+```
+
+The heap is ordered by `(rank, position)`, preserving merge priority and left-to-right ties.
+
+After a merge, only `prev + merged` and `merged + next` are pushed. Unaffected candidates remain in the heap.
+
+### Generation-based lazy invalidation
+
+When a node’s value changes or it is removed, its generation increments. A heap entry is valid only if:
+
+- Both captured nodes are alive.
+- They are still adjacent in both directions.
+- Their current generations match the captured generations.
+- Their current pair still has the recorded rank.
+
+Generation counters catch a subtle case that `alive` alone cannot: a left node may remain alive but now contain a different merged token.
+
+### Bounded, thread-safe pretoken LRU
+
+V6 caches:
 
 ```text
 pretoken bytes → final token IDs
 ```
 
-Bound it with an LRU policy so vocabulary-sized or adversarial inputs cannot grow memory indefinitely.
+The default capacity is 65,536 distinct pretokens. Least-recently-used eviction prevents unbounded growth. A mutex protects the cache because encoding releases the GIL and the same tokenizer may be called concurrently.
 
-### Compact persistent candidates in C++
+Caching can be disabled for algorithmic measurement:
 
-Combine V4’s locality with V5’s representation:
+```python
+tokenizer = TokenizerV6(vocab, merges, cache_capacity=0)
+```
 
-- `prev[index]` and `next[index]` arrays instead of heap-allocated nodes.
-- Integer IDs throughout.
-- Generation counters for stale entries.
-- Persistent native min-heap.
+Cache state is observable and resettable:
 
-This may achieve near-`O(L log L)` structural work without Python object overhead. It must still beat simple scanning on real pretoken sizes.
+```python
+tokenizer.cache_info()   # {"hits": ..., "misses": ..., "size": ...}
+tokenizer.clear_cache()
+```
 
-### Avoid `vector::erase`
+### Complexity
 
-Possible representations include an array-backed linked structure, tombstones plus compaction, or a small-vector strategy for short inputs.
+Ignoring cache hits:
 
-### Native pretokenization
+```text
+Build node array: O(L)
+Build candidate heap: up to O(L log L) in the current implementation
+Each local merge/update: O(log L)
+Total structural time: O(L log L)
+Per-pretoken working memory: O(L)
+Bounded cache memory: proportional to configured capacity and cached output sizes
+```
 
-Moving regex and special-token recognition into native code would eliminate more boundary work. The hard part is exactly reproducing Unicode-property semantics; `std::regex` is not a drop-in replacement.
+On a cache hit, BPE work is replaced by hash lookup, LRU maintenance, and copying cached IDs to the result.
 
-### Parallel batches
+### Measured crossover
 
-The GIL is already released. Large independent batches could be divided among native threads, but scheduling overhead makes this inappropriate for tiny batches.
+With the cache disabled and one long regex pretoken formed by repeating `antidisestablishmentarianism`:
 
-### Typed output buffer
+| Input bytes | V5 scan | V6 heap | V6 speedup |
+|---:|---:|---:|---:|
+| 280 | 0.080 ms | 0.015 ms | 5.20× |
+| 1,400 | 1.804 ms | 0.099 ms | 18.15× |
+| 2,800 | 7.237 ms | 0.215 ms | 33.62× |
+| 7,000 | 44.115 ms | 0.699 ms | 63.13× |
 
-A NumPy or buffer result would avoid one Python integer per token, but would change the existing `list[int]` API.
+The widening speedup is the expected `O(L²)` versus near-`O(L log L)` crossover.
 
-Recommended order:
+### Honest interpretation
 
-1. Profile realistic inputs.
-2. Add a bounded pretoken cache.
-3. Prototype a compact native persistent heap.
-4. Move pretokenization native only if profiles justify it.
+- **Tiny, cold pretokens:** V5’s simpler scan can be faster.
+- **Long, cold pretokens:** V6’s persistent heap wins increasingly strongly.
+- **Repeated pretokens:** V6’s LRU can bypass both algorithms.
+
+V6 is therefore optimized for a broader workload, not guaranteed to beat V5 on every individual pretoken.
+
+Remaining opportunities are native pretokenization, heap construction via linear-time heapify, parallel native batches, and typed-buffer output.
 
 ---
 
@@ -918,12 +998,13 @@ Recommended order:
 
 ### Build and test
 
-V5 uses the direct pybind11 Makefile workflow:
+V5 and V6 use the direct pybind11 Makefile workflow:
 
 ```bash
 uv sync
 make native
 make test-v5
+make test-v6
 ```
 
 Force a rebuild after compiler-option or header changes:
@@ -974,7 +1055,11 @@ The benchmark verifies every implementation’s IDs against a local tiktoken enc
 
 **Does releasing the GIL make V5 parallel?** No. It permits concurrency; the current native loop itself is single-threaded.
 
-**Why is tiktoken faster?** V5 retains Python pretokenization and boundary conversion and still uses a quadratic native core.
+**Why can tiktoken remain faster?** V5/V6 retain Python pretokenization and boundary conversion; tiktoken has a more mature end-to-end native implementation.
+
+**What does V6 add?** A compact array-backed linked structure, persistent native heap, generation-based stale-entry checks, and bounded LRU caching.
+
+**Does V6 always beat V5?** No. V5 can win on tiny cold pretokens; V6 wins on sufficiently long inputs or repeated pretokens.
 
 ### Final mental model
 
@@ -986,6 +1071,7 @@ V2: current adjacent pairs are the unit of search
 V3: candidates become heap entries, but only temporarily
 V4: local mutations are the unit of maintenance
 V5: compact integer operations are the unit of execution
+V6: local native updates and reusable pretoken results are the unit of work
 ```
 
 Or remember the performance story:
@@ -996,6 +1082,7 @@ V2 removes irrelevant rules.
 V3 introduces the right structure with the wrong lifetime.
 V4 preserves state but pays Python object costs.
 V5 simplifies the algorithm and removes Python from the hot loop.
+V6 combines native locality with bounded reuse.
 ```
 
 The deepest lesson is broader than tokenization:
@@ -1392,7 +1479,7 @@ The repository already contains local GPT-2 vocabulary and merge files. Its benc
 tiktoken.get_encoding("gpt2")
 ```
 
-That makes the benchmark usable without downloading GPT-2 assets and ensures that V1–V5 and the tiktoken reference use the same learned tokenizer definition.
+That makes the benchmark usable without downloading GPT-2 assets and ensures that V1–V6 and the tiktoken reference use the same learned tokenizer definition.
 
 ### Final input/output table
 

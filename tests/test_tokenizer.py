@@ -16,7 +16,7 @@ from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
 VOCAB_PATH = FIXTURES_PATH / "gpt2_vocab.json"
 MERGES_PATH = FIXTURES_PATH / "gpt2_merges.txt"
-TOKENIZER_NAMES = ["v1", "v2", "v3", "v4", "v5"]
+TOKENIZER_NAMES = ["v1", "v2", "v3", "v4", "v5", "v6"]
 
 
 @pytest.fixture(params=TOKENIZER_NAMES, ids=TOKENIZER_NAMES)
@@ -437,6 +437,30 @@ def test_encode_iterable_tinystories_sample_roundtrip(tokenizer_name):
     with open(FIXTURES_PATH / "tinystories_sample.txt") as f:
         corpus_contents = f.read()
     assert tokenizer.decode(all_ids) == corpus_contents
+
+
+def test_v6_cache_is_bounded_and_records_hits():
+    from cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v6 import TokenizerV6
+
+    reference = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v5")
+    tokenizer = TokenizerV6(reference.id_to_token, reference.merges, cache_capacity=2)
+
+    tokenizer.encode("alpha beta")
+    first = tokenizer.cache_info()
+    tokenizer.encode("alpha beta")
+    second = tokenizer.cache_info()
+
+    assert first["size"] <= 2
+    assert second["size"] <= 2
+    assert second["hits"] > first["hits"]
+
+
+def test_v6_matches_v5_on_long_pretoken():
+    v5 = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v5")
+    v6 = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v6")
+    text = "antidisestablishmentarianism" * 100
+
+    assert v6.encode(text) == v5.encode(text)
 
 
 def test_encode_iterable_tinystories_matches_tiktoken(tokenizer_name):
