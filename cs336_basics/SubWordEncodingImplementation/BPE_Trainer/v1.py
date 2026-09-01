@@ -1,10 +1,7 @@
 import os
 import re
-import regex
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from collections import Counter
-from typing import BinaryIO, List, Tuple
-from collections import Counter
 
 from .base import BPE_Trainer
 from .regex_utils import GPT2_PATTERN
@@ -15,7 +12,7 @@ def process_chunk(
     input_path: str,
     start: int,
     end: int,
-    special_tokens: List[str],
+    special_tokens: list[str],
 ) -> list[list[bytes]]:
     """
     Read one chunk from disk, split around special tokens,
@@ -61,7 +58,7 @@ class NaiveBPETrainer(BPE_Trainer):
     def load_and_pretokenize(
         self,
         input_path: str,
-        special_tokens: List[str],
+        special_tokens: list[str],
         num_processes: int = os.cpu_count(),
     ) -> list[list[bytes]]:
         """
@@ -123,9 +120,9 @@ class NaiveBPETrainer(BPE_Trainer):
 
     def merge_word(
         self,
-        word: List[bytes],
-        pair: Tuple[bytes, bytes],
-    ) -> List[bytes]:
+        word: list[bytes],
+        pair: tuple[bytes, bytes],
+    ) -> list[bytes]:
         """
         Merge every non-overlapping occurrence of `pair` in `word`.
         """

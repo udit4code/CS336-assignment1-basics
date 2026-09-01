@@ -2,10 +2,9 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 import os
 import re
-from .regex_utils import GPT2_PATTERN
-from typing import BinaryIO, List, Tuple
 
 from .base import BPE_Trainer
+from .regex_utils import GPT2_PATTERN
 
 
 # Pre-create all byte objects once.

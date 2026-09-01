@@ -1,4 +1,4 @@
-# BPE Tokenization Optimization: From V1 to V6
+# BPE Tokenizer Optimization: From V1 to V6
 
 > A living, first-principles revision guide to the BPE tokenizer implementations in this repository.
 >
