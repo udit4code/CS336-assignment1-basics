@@ -1,13 +1,13 @@
 import pytest
 import torch
 
-from cs336_basics.TransformerImplementation.RoPEModule.RoPE import (
+from cs336_basics.nn.rotary_embedding import (
     RotaryPositionalEmbedding,
 )
-from cs336_basics.TransformerImplementation.RoPEModule.RoPEWithReduce import (
+from cs336_basics.nn.rotary_embedding_einops import (
     RotaryPositionalEmbeddingWithReduce,
 )
-from cs336_basics.TransformerImplementation.TransformerLanguageModelModule.TransformerLanguageModel import (
+from cs336_basics.nn.transformer import (
     TransformerLM,
 )
 

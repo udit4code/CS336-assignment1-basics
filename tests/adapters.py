@@ -29,7 +29,7 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    from cs336_basics.TransformerImplementation.LinearModule.LinearLayerWithoutBias import Linear 
+    from cs336_basics.nn.linear import Linear
 
     linear = Linear(d_in, d_out)
     linear.load_state_dict({
@@ -56,7 +56,7 @@ def run_linear_einops(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    from cs336_basics.TransformerImplementation.LinearModule.LinearLayerWithoutBiasEinops import LinearEinops 
+    from cs336_basics.nn.linear_einops import LinearEinops
 
     linear = LinearEinops(d_in, d_out)
     linear.load_state_dict({
@@ -82,7 +82,7 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-    from cs336_basics.TransformerImplementation.EmbeddingModule.EmbeddingLayer import Embedding
+    from cs336_basics.nn.embedding import Embedding
     embedding = Embedding(vocab_size, d_model)
     embedding.load_state_dict({"weight": weights})
     return embedding(token_ids)
@@ -117,7 +117,7 @@ def run_swiglu_with_einops(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    from cs336_basics.TransformerImplementation.PositionWiseFeedForwardModule.SwiGLULayerEinops import SwiGLUEinops
+    from cs336_basics.nn.feed_forward_einops import SwiGLUEinops
     swiglu = SwiGLUEinops(d_model, d_ff)
 
     swiglu.load_state_dict(
@@ -160,7 +160,7 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    from cs336_basics.TransformerImplementation.PositionWiseFeedForwardModule.SwiGLULayer import SwiGLU
+    from cs336_basics.nn.feed_forward import SwiGLU
     swiglu = SwiGLU(d_model, d_ff)
 
     swiglu.load_state_dict(
@@ -192,7 +192,7 @@ def run_scaled_dot_product_attention_with_einops(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    from cs336_basics.TransformerImplementation.ScaledDotProductAttentionModule.ScaledDotProductAttentionEinops import scaled_dot_product_attention_with_einops
+    from cs336_basics.nn.attention_einops import scaled_dot_product_attention_with_einops
     return scaled_dot_product_attention_with_einops(
         query=Q, 
         key=K, 
@@ -218,7 +218,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    from cs336_basics.TransformerImplementation.ScaledDotProductAttentionModule.ScaledDotProductAttention import scaled_dot_product_attention 
+    from cs336_basics.nn.attention import scaled_dot_product_attention
     return scaled_dot_product_attention(
         query=Q, 
         key=K, 
@@ -258,7 +258,7 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    from cs336_basics.TransformerImplementation.MultiHeadSelfAttentionModule.MultiHeadSelfAttention import MultiHeadSelfAttention
+    from cs336_basics.nn.multihead_attention import MultiHeadSelfAttention
     sequence_length = in_features.shape[-2] 
     mha = MultiHeadSelfAttention(
         d_model=d_model,
@@ -324,7 +324,7 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    from cs336_basics.TransformerImplementation.MultiHeadSelfAttentionModule.MultiHeadSelfAttention import MultiHeadSelfAttention
+    from cs336_basics.nn.multihead_attention import MultiHeadSelfAttention
     sequence_length = in_features.shape[-2] 
     mha = MultiHeadSelfAttention(
         d_model=d_model,
@@ -371,7 +371,7 @@ def run_rope_with_einops(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    from cs336_basics.TransformerImplementation.RoPEModule.RoPEWithReduce import RotaryPositionalEmbeddingWithReduce 
+    from cs336_basics.nn.rotary_embedding_einops import RotaryPositionalEmbeddingWithReduce
     rope = RotaryPositionalEmbeddingWithReduce(
         theta=theta,
         d_k=d_k,
@@ -402,7 +402,7 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    from cs336_basics.TransformerImplementation.RoPEModule.RoPE import RotaryPositionalEmbedding 
+    from cs336_basics.nn.rotary_embedding import RotaryPositionalEmbedding
     rope = RotaryPositionalEmbedding(
         theta=theta,
         d_k=d_k,
@@ -485,7 +485,7 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    from cs336_basics.TransformerImplementation.TransformerBlockModule.TransformerBlock import (
+    from cs336_basics.nn.transformer_block import (
         TransformerBlock,
     )
     block = TransformerBlock(
@@ -605,7 +605,7 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    from cs336_basics.TransformerImplementation.TransformerLanguageModelModule.TransformerLanguageModel import TransformerLM
+    from cs336_basics.nn.transformer import TransformerLM
     model = TransformerLM(
         vocab_size=vocab_size,
         context_length=context_length,
@@ -682,7 +682,7 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    from cs336_basics.TransformerImplementation.RMSNormModule.RMSNormLayer import RMSNorm
+    from cs336_basics.nn.normalization import RMSNorm
     rms_norm = RMSNorm(d_model, eps)
     rms_norm.load_state_dict({
         "weight": weights
@@ -709,7 +709,7 @@ def run_rmsnorm_with_reduce(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    from cs336_basics.TransformerImplementation.RMSNormModule.RMSNormLayerWithReduce import RMSNormReduce
+    from cs336_basics.nn.normalization_einops import RMSNormReduce
     rms_norm = RMSNormReduce(d_model, eps)
     rms_norm.load_state_dict({
         "weight": weights
@@ -727,7 +727,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    from cs336_basics.TransformerImplementation.SiLUModule.SiLULayer import SiLU
+    from cs336_basics.nn.activation import SiLU
     silu = SiLU()
     return silu(in_features)
 
@@ -752,8 +752,8 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    from cs336_basics.DataLoaderImplementation.Dataset import LanguageModelDataset
-    from cs336_basics.DataLoaderImplementation.get_batch import get_batch
+    from cs336_basics.batching import get_batch
+    from cs336_basics.data import LanguageModelDataset
     lm_dataset = LanguageModelDataset(
         tokens=tokens,
         context_length=context_length
@@ -778,7 +778,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    from cs336_basics.TransformerImplementation.SoftmaxModule.Softmax import softmax
+    from cs336_basics.nn.softmax import softmax
     return softmax(in_features, dim)
 
 
@@ -797,7 +797,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    from cs336_basics.TransformerImplementation.CrossEntropyLossModule.CrossEntropy import cross_entropy 
+    from cs336_basics.nn.cross_entropy import cross_entropy
     return cross_entropy(
         logits=inputs,
         targets=targets
@@ -813,7 +813,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    from cs336_basics.TransformerImplementation.GradientClippingModule.GradientClipping import gradient_clipping
+    from cs336_basics.nn.gradient_clipping import gradient_clipping
     return gradient_clipping(
         parameters=parameters,
         max_l2_norm=max_l2_norm
@@ -824,7 +824,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    from cs336_basics.TransformerImplementation.AdamWOptimizerModule.AdamW import AdamW
+    from cs336_basics.nn.adamw import AdamW
     return AdamW
 
 
@@ -853,7 +853,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    from cs336_basics.TransformerImplementation.LearningRateScheduleModule.LearningRateSchedule import get_lr_cosine_schedule
+    from cs336_basics.nn.schedules import get_lr_cosine_schedule
     return get_lr_cosine_schedule(
         t=it,
         alpha_max=max_learning_rate,
@@ -879,7 +879,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    from cs336_basics.CheckpointingImplementation.checkpoint_utils import save_checkpoint
+    from cs336_basics.checkpointing import save_checkpoint
     return save_checkpoint(
         model=model,
         optimizer=optimizer,
@@ -906,7 +906,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    from cs336_basics.CheckpointingImplementation.checkpoint_utils import load_checkpoint
+    from cs336_basics.checkpointing import load_checkpoint
     return load_checkpoint(
         src=src, 
         model=model, 
@@ -918,7 +918,7 @@ def get_tokenizer(
     vocab: dict[int, bytes],
     merges: list[tuple[bytes, bytes]],
     special_tokens: list[str] | None = None,
-    tokenizer_name: str = "v4",
+    tokenizer_name: str = "linked_heap",
 ) -> Any:
     """Given a vocabulary, a list of merges, and a list of special tokens,
     return a BPE tokenizer that uses the provided vocab, merges, and special tokens.
@@ -932,18 +932,18 @@ def get_tokenizer(
         special_tokens (list[str] | None): A list of string special tokens for the tokenizer. These strings will never
             be split into multiple tokens, and will always be kept as a single token.
         tokenizer_name (str): Which tokenizer implementation to instantiate. Supported values are
-            "v1", "v2", "v3", "v4", "v5", and "v6".
+            "naive", "rank_scan", "rebuilding_heap", "linked_heap", "native_batch", and "cached_native".
 
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
     tokenizer_classes = {
-        "v1": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v1", "NaiveTokenizer"),
-        "v2": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v2", "TokenizerV2"),
-        "v3": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v3", "TokenizerV3"),
-        "v4": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v4", "TokenizerV4"),
-        "v5": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v5", "TokenizerV5"),
-        "v6": ("cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v6", "TokenizerV6"),
+        "naive": ("cs336_basics.tokenization.naive", "NaiveTokenizer"),
+        "rank_scan": ("cs336_basics.tokenization.rank_scan", "RankScanTokenizer"),
+        "rebuilding_heap": ("cs336_basics.tokenization.rebuilding_heap", "RebuildingHeapTokenizer"),
+        "linked_heap": ("cs336_basics.tokenization.linked_heap", "LinkedHeapTokenizer"),
+        "native_batch": ("cs336_basics.tokenization.native", "NativeBatchTokenizer"),
+        "cached_native": ("cs336_basics.tokenization.cached", "CachedNativeTokenizer"),
     }
 
     if tokenizer_name not in tokenizer_classes:
@@ -982,8 +982,8 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v2 import OptimisedBPETrainer
-    return OptimisedBPETrainer().train(input_path, vocab_size, special_tokens)
+    from cs336_basics.tokenization.trainers.word_frequency import WordFrequencyBPETrainer
+    return WordFrequencyBPETrainer().train(input_path, vocab_size, special_tokens)
 
 
 def run_train_bpe_naive(
@@ -1013,5 +1013,5 @@ def run_train_bpe_naive(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v1 import train_bpe  
-    return train_bpe(input_path, vocab_size, special_tokens)
+    from cs336_basics.tokenization.trainers.naive import train_bpe_naive
+    return train_bpe_naive(input_path, vocab_size, special_tokens)

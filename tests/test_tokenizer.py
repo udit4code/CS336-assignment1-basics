@@ -16,7 +16,7 @@ from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
 VOCAB_PATH = FIXTURES_PATH / "gpt2_vocab.json"
 MERGES_PATH = FIXTURES_PATH / "gpt2_merges.txt"
-TOKENIZER_NAMES = ["v1", "v2", "v3", "v4", "v5", "v6"]
+TOKENIZER_NAMES = ["naive", "rank_scan", "rebuilding_heap", "linked_heap", "native_batch", "cached_native"]
 
 
 @pytest.fixture(params=TOKENIZER_NAMES, ids=TOKENIZER_NAMES)
@@ -48,7 +48,7 @@ def get_tokenizer_from_vocab_merges_path(
     vocab_path: str | os.PathLike,
     merges_path: str | os.PathLike,
     special_tokens: list[str] | None = None,
-    tokenizer_name: str = "v4",
+    tokenizer_name: str = "linked_heap",
 ):
     gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode().items()}
     with open(vocab_path) as vocab_f:
@@ -439,11 +439,11 @@ def test_encode_iterable_tinystories_sample_roundtrip(tokenizer_name):
     assert tokenizer.decode(all_ids) == corpus_contents
 
 
-def test_v6_cache_is_bounded_and_records_hits():
-    from cs336_basics.SubWordEncodingImplementation.BPE_Tokenizer.v6 import TokenizerV6
+def test_cached_native_cache_is_bounded_and_records_hits():
+    from cs336_basics.tokenization.cached import CachedNativeTokenizer
 
-    reference = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v5")
-    tokenizer = TokenizerV6(reference.id_to_token, reference.merges, cache_capacity=2)
+    reference = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="native_batch")
+    tokenizer = CachedNativeTokenizer(reference.id_to_token, reference.merges, cache_capacity=2)
 
     tokenizer.encode("alpha beta")
     first = tokenizer.cache_info()
@@ -455,12 +455,12 @@ def test_v6_cache_is_bounded_and_records_hits():
     assert second["hits"] > first["hits"]
 
 
-def test_v6_matches_v5_on_long_pretoken():
-    v5 = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v5")
-    v6 = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="v6")
+def test_cached_native_matches_native_batch_on_long_pretoken():
+    native_batch = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="native_batch")
+    cached_native = get_tokenizer_from_vocab_merges_path(VOCAB_PATH, MERGES_PATH, tokenizer_name="cached_native")
     text = "antidisestablishmentarianism" * 100
 
-    assert v6.encode(text) == v5.encode(text)
+    assert cached_native.encode(text) == native_batch.encode(text)
 
 
 def test_encode_iterable_tinystories_matches_tiktoken(tokenizer_name):

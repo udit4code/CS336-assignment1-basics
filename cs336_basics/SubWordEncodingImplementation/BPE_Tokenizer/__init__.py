@@ -1,8 +1,0 @@
-from .v1 import NaiveTokenizer as TokenizerV1
-from .v2 import TokenizerV2
-from .v3 import TokenizerV3
-from .v4 import TokenizerV4
-from .v5 import TokenizerV5
-from .v6 import TokenizerV6
-
-__all__ = ["TokenizerV1", "TokenizerV2", "TokenizerV3", "TokenizerV4", "TokenizerV5", "TokenizerV6"]

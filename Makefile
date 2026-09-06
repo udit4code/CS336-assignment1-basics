@@ -14,8 +14,8 @@ CXXFLAGS := -O3 -Wall -Wextra -Wno-unused-parameter -shared -std=c++17 -fPIC $(P
 PYBIND_INCLUDES := $(shell $(PYTHON) -m pybind11 --includes)
 EXT_SUFFIX := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
 
-NATIVE_DIR := cs336_basics/SubWordEncodingImplementation/BPE_Tokenizer/native
-PACKAGE_DIR := cs336_basics/SubWordEncodingImplementation/BPE_Tokenizer
+NATIVE_DIR := cs336_basics/tokenization/_native
+PACKAGE_DIR := cs336_basics/tokenization
 NATIVE_SOURCE := $(NATIVE_DIR)/bpe_native.cpp
 NATIVE_TARGET := $(PACKAGE_DIR)/_bpe_native$(EXT_SUFFIX)
 
@@ -24,16 +24,16 @@ native: $(NATIVE_TARGET)
 $(NATIVE_TARGET): $(NATIVE_SOURCE)
 	$(CXX) $(CXXFLAGS) $(PYBIND_INCLUDES) $(NATIVE_SOURCE) -o $(NATIVE_TARGET)
 
-test-v5: native
-	$(PYTHON) -m pytest tests/test_tokenizer.py -k v5 -v
+test-native-batch: native
+	$(PYTHON) -m pytest tests/test_tokenizer.py -k native_batch -v
 
-test-v6: native
-	$(PYTHON) -m pytest tests/test_tokenizer.py -k v6 -v
+test-cached-native: native
+	$(PYTHON) -m pytest tests/test_tokenizer.py -k cached_native -v
 
 benchmark-tokenizers: native
-	$(PYTHON) -m cs336_basics.SubWordEncodingImplementation.BenchmarkTokenizer.benchmark_script
+	$(PYTHON) -m cs336_basics.tokenization.benchmark
 
 clean-native:
 	rm -f $(PACKAGE_DIR)/_bpe_native*.so $(PACKAGE_DIR)/_bpe_native*.dylib
 
-.PHONY: native test-v5 test-v6 benchmark-tokenizers clean-native
+.PHONY: native test-native-batch test-cached-native benchmark-tokenizers clean-native

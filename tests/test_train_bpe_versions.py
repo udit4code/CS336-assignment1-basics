@@ -3,16 +3,16 @@ import time
 
 import pytest
 
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer._incremental import (
+from cs336_basics.tokenization.trainers._state import (
     IncrementalMergeState,
     LazyMaxPairHeap,
     choose_best_pair,
 )
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v2 import OptimisedBPETrainer
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v3 import IncrementalBPETrainer
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v4 import HeapBPETrainer
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v5 import IntegerBPETrainer
-from cs336_basics.SubWordEncodingImplementation.BPE_Trainer.v6 import CompactingHeapBPETrainer
+from cs336_basics.tokenization.trainers.compacting import CompactingHeapBPETrainer
+from cs336_basics.tokenization.trainers.heap import HeapBPETrainer
+from cs336_basics.tokenization.trainers.incremental import IncrementalBPETrainer
+from cs336_basics.tokenization.trainers.integer import IntegerBPETrainer
+from cs336_basics.tokenization.trainers.word_frequency import WordFrequencyBPETrainer
 
 from .common import FIXTURES_PATH
 
@@ -28,10 +28,10 @@ TRAINER_VERSIONS = (
 @pytest.mark.parametrize(
     "trainer_cls",
     TRAINER_VERSIONS,
-    ids=("v3", "v4", "v5", "v6"),
+    ids=("incremental", "heap", "integer", "compacting"),
 )
 def test_train_bpe_speed_optimized_versions(trainer_cls):
-    """Keep every post-v2 trainer below the assignment's 1.5-second budget."""
+    """Keep every optimized trainer below the assignment's 1.5-second budget."""
     start_time = time.perf_counter()
     trainer_cls().train(
         FIXTURES_PATH / "corpus.en",
@@ -48,7 +48,7 @@ def test_train_bpe_speed_optimized_versions(trainer_cls):
 
 @pytest.fixture(scope="module")
 def reference_training_result():
-    return OptimisedBPETrainer().train(
+    return WordFrequencyBPETrainer().train(
         FIXTURES_PATH / "corpus.en",
         vocab_size=500,
         special_tokens=["<|endoftext|>"],
@@ -58,9 +58,9 @@ def reference_training_result():
 @pytest.mark.parametrize(
     "trainer_cls",
     TRAINER_VERSIONS,
-    ids=("v3", "v4", "v5", "v6"),
+    ids=("incremental", "heap", "integer", "compacting"),
 )
-def test_optimized_trainer_versions_match_v2(trainer_cls, reference_training_result):
+def test_optimized_trainers_match_reference(trainer_cls, reference_training_result):
     actual = trainer_cls().train(
         FIXTURES_PATH / "corpus.en",
         vocab_size=500,

@@ -1,6 +1,4 @@
 import json
-import time
-
 from .adapters import run_train_bpe
 from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
@@ -41,4 +39,3 @@ def test_train_bpe_naive():
     # have been constructed differently), we'll make sure that the vocab keys and values match
     assert set(vocab.keys()) == set(reference_vocab.keys())
     assert set(vocab.values()) == set(reference_vocab.values())
-
