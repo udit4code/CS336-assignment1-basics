@@ -5,32 +5,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# How does Saving checkpoint look under the hood ? 
-#  Model
-#  │
-#  │ state_dict()
-#  ▼
-#  Dictionary of Parameters
-#  │
-#  │
-#  Optimizer
-#  │
-#  │ state_dict()
-#  ▼
-#  Dictionary of Moments
-#  │
-#  ▼
-#  {
-#     model_state_dict,
-#     optimizer_state_dict,
-#     iteration
-#  }
-#  │
-#  ▼
-#  torch.save(...)
-#  │
-#  ▼
-#  checkpoint.pt
+# A resumable training checkpoint needs model state, optimizer state, and the
+# training position. A module state_dict contains parameters and persistent
+# buffers; an optimizer state_dict contains parameter-group settings and any
+# per-parameter state, such as Adam's moments. torch.save serializes this
+# object graph to a path or binary file-like object.
+
 
 def save_checkpoint(
     model: nn.Module,
@@ -49,26 +29,12 @@ def save_checkpoint(
         checkpoint,
         out,
     )
-    
-    
-# How does loading checkpoint work under the hood ? 
-# checkpoint.pt
-#       │
-#       ▼
-# torch.load()
-#       │
-#       ▼
-# Dictionary
-#       │
-#       ├──────────────┐
-#       │              │
-#       ▼              ▼
-# model.load_      optimizer.load_
-# state_dict()     state_dict()
-#       │              │
-#       └──────┬───────┘
-#              ▼
-#       Training resumes
+
+
+# Loading reverses that process: deserialize the mappings, copy tensors into
+# the existing model, restore optimizer bookkeeping, and return the saved step.
+# The caller must construct a compatible model and optimizer first.
+
 
 def load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
@@ -79,21 +45,18 @@ def load_checkpoint(
     checkpoint = torch.load(
         src,
     )
-    # Key Idea : Calling model.load_state_dict() and optimizer.load_state_dict() returns their respective dictionary objects. 
-    # Then, PyTorch can recursively traverse them and collect every learnable parameter. 
-    # For Example, if model = TransformerLM(...), then, internally, it would have : embeddingLayer, layer0, ... layer31, LM head. 
-    # So, the dictionary being loaded would be something like : 
+    # load_state_dict does not discover or return the saved mapping. It matches
+    # keys in the supplied mapping to already-registered model state, for example:
     # {
     #     "embedding.weight": ...,
-    #     "layers.0.attn.q_proj.weight": ...,
-    #     "layers.0.attn.k_proj.weight": ...,
+    #     "layers.0.attention.q_proj.weight": ...,
+    #     "layers.0.attention.k_proj.weight": ...,
     #     ...
     #     "lm_head.weight": ...
     # }
-    model.load_state_dict(
-        checkpoint["model_state_dict"]
-    )
-    # Similarly, for AdamW optimizer, the dictionary would look like : 
+    model.load_state_dict(checkpoint["model_state_dict"])
+    # Optimizer state is keyed internally by parameter identifiers and also
+    # records each parameter group's hyperparameters. For AdamW it includes:
     # {
     #     "state": {
     #         parameter_0: {
@@ -106,10 +69,8 @@ def load_checkpoint(
 
     #     "param_groups": ...
     # }
-    # For AdamW, this includes the first moment (m), second moment (v), and step counter, which are essential for resuming optimization correctly.
-    optimizer.load_state_dict(
-        checkpoint["optimizer_state_dict"]
-    )
+    # Restoring moments and the step counter is necessary to continue with the
+    # same updates; restoring model weights alone does not reproduce a resume.
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     return checkpoint["iteration"]
-    

@@ -1,5 +1,3 @@
-
-
 # GPT-2 pre-tokenization regex
 import regex
 

@@ -3,17 +3,13 @@ from __future__ import annotations
 from .base import BaseTokenizer
 
 
-
 class NaiveTokenizer(BaseTokenizer):
-
     def _apply_merge(
         self,
         tokens: list[bytes],
         pair: tuple[bytes, bytes],
     ) -> list[bytes]:
-        """
-        Merge one pair everywhere.
-        """
+        """Merge non-overlapping occurrences of one pair from left to right."""
 
         out = []
         i = 0
@@ -29,9 +25,7 @@ class NaiveTokenizer(BaseTokenizer):
         return out
 
     def _encode_pretoken(self, pretoken: str) -> list[int]:
-        """
-        Encode one pretoken.
-        """
+        """Encode one pretoken by replaying learned merges in rank order."""
 
         pieces = [bytes([b]) for b in pretoken.encode("utf-8")]
 

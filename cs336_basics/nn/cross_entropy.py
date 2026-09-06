@@ -1,4 +1,3 @@
-
 import torch
 
 
@@ -8,27 +7,26 @@ def cross_entropy(
 ) -> torch.Tensor:
 
     assert logits.ndim >= 2, f"logits.ndim = {logits.ndim} is not greater than or equal to 2"
-    assert targets.shape == logits.shape[:-1] 
-    assert targets.dtype == torch.long or targets.dtype == torch.int64, f"targets.dtype = {targets.dtype} is not long or int64"
+    assert targets.shape == logits.shape[:-1]
+    assert targets.dtype == torch.long or targets.dtype == torch.int64, (
+        f"targets.dtype = {targets.dtype} is not long or int64"
+    )
 
-    # Say, logits have a shape (batch_size, seq_len, vocab_size) = (2, 3, 5) 
-    # and, targets have a shape (batch_size, seq_len) = (2, 3). 
-    # Step 1 : We get the maximum logits over the last dimension. 
-    # So, logits.max(dim=-1, keepdim=True).values return max_logits with shape (2, 3, 1). If we had made keepdim=False, it would have been (2, 3) and broadcasting would have failed.
+    # For logits (..., classes), keepdim preserves a singleton class axis so
+    # the per-example maximum broadcasts across all classes.
     max_logits = logits.max(dim=-1, keepdim=True).values
 
-    # Step 2 : Via broadcasting, stabilize logits as : logits (2, 3, 5) - max_logits (2, 3, 1) gives a tensor with shape (2, 3, 5).
-    # We do this step for numerical stability.
+    # Subtracting the maximum leaves softmax probabilities unchanged and makes
+    # every exponent's argument non-positive, preventing positive overflow.
     stabilized_logits = logits - max_logits
 
-    # Step 3 : Exp on each item of stablized_logits. No change in shape of tensor.
-    # So, exp_logits still have shape (2, 3, 5)
+    # Exponentiation preserves shape.
     exp_logits = torch.exp(stabilized_logits)
 
-    # Step 4 : Now, we do a sum-reduction, so, shape of sum-exp is (2, 3). We go from (2, 3, 5) to (2, 3)
+    # Summing over classes removes the final axis: (..., classes) -> (...,).
     sum_exp = exp_logits.sum(dim=-1)
 
-    # Step 5 : Apply log on sum_exp. No change in shape. So, shape is still (2, 3), which is (B, S)
+    # This is logsumexp of the shifted logits.
     log_sum_exp = torch.log(sum_exp)
 
     # Step 6:
@@ -68,13 +66,14 @@ def cross_entropy(
         index=targets.unsqueeze(-1),
     ).squeeze(-1)
 
-    # Step 7 : via broadcasting, (B, S) - (B, S)
+    # Per-position negative log-likelihood is logsumexp(logits) - logits[target].
     loss = log_sum_exp - target_logits
 
-    # Finally, return the average cross entropy across all examples. So, we have to take mean of loss.
+    # Average over every target position in all leading dimensions.
     return loss.mean()
 
-# Math behind cross-entropy : 
+
+# Cross-entropy derivation:
 
 # Cross-entropy loss for the correct class y:
 #     l = -log(exp(x_y) / Σ_i exp(x_i))

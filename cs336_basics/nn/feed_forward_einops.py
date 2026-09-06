@@ -4,6 +4,7 @@ from einops import einsum
 
 from .linear_einops import LinearEinops
 
+
 class SwiGLUEinops(nn.Module):
     def __init__(self, d_model, d_ff):
         super().__init__()
@@ -13,12 +14,11 @@ class SwiGLUEinops(nn.Module):
         self.down_proj = LinearEinops(d_ff, d_model)
 
     def forward(self, x):
-        # In Gate Projection, we have :  
+        # In Gate Projection, we have :
         # x has Shape: (..., d_model) = (batch_size, seq_len, d_model) = (b, t, d_model)
         # and W1 has Shape (d_ff, d_model)
-        # Einstein notation: g_i = Summation over j (x_btj * W1_ij) = x_btj * W1_ij, where i is the free index and j is the repeated index , which maps to d_model.
-        # Here, j appears once in x and once in W1, therefore it is summed over.
-        # The remaining dimension is d_ff.
+        # Einstein notation: g[b,t,i] = sum_j x[b,t,j] W_gate[i,j].
+        # The repeated d_model axis j is reduced; b, t, and d_ff axis i remain.
         # Result Shape: (..., d_ff) = (batch_size, seq_len, d_ff)
         ####################################################################
         gate = einsum(
@@ -28,12 +28,11 @@ class SwiGLUEinops(nn.Module):
         )
 
         gate = gate * torch.sigmoid(gate)
-        
-        # In Up Projection, we have : 
+
+        # In Up Projection, we have :
         # x has Shape: (..., d_model) = (batch_size, seq_len, d_model) = (b, t, d_model)
         # and W3 has Shape (d_ff, d_model).
-        # Einstein notation: u_i = Σ_d x_d W³_id = Summation over j over (x_btj * W3_ij), where i is the free index and j is the repeated index , which maps to d_model.
-        # Again, j for d_model is the repeated index, and therefore it is summed away.
+        # u[b,t,i] = sum_j x[b,t,j] W_up[i,j], again reducing d_model.
         # Output Shape: (..., d_ff)
         up = einsum(
             x,
@@ -42,13 +41,12 @@ class SwiGLUEinops(nn.Module):
         )
 
         hidden = gate * up
-        
-        # In Down Projection, we have : 
-        # hidden has Shape: (..., d_ff) = (batch_size, seq_len, d_ff) = (b, t, d_ff) and 
+
+        # In Down Projection, we have :
+        # hidden has Shape: (..., d_ff) = (batch_size, seq_len, d_ff) = (b, t, d_ff) and
         # W2 has Shape: (d_model, d_ff)
-        # Einstein notation: y_d = Σ_i hidden_i W²_di = Summation over j over (hidden_btj * W2_dj), where d is the free index and j is the repeated index , which maps to d_ff.
-        # Here, j for d_ff is repeated, therefore it is summed over.
-        # Remaining dimension: d_model
+        # y[b,t,d] = sum_i hidden[b,t,i] W_down[d,i]. The d_ff axis i
+        # is reduced and d_model axis d remains.
         # Output Shape: (..., d_model) = (batch_size, seq_len, d_model)
 
         return einsum(

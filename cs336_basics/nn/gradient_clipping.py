@@ -4,9 +4,9 @@ import torch
 from torch import nn
 
 
-# During training, we can sometimes hit training examples that yield large gradients, which can destabilize training.
-# In order to mitigate it, one technique we often employ in practice is called gradient clipping. The idea is to enforce a limit on
-# the norm of the gradient after each backward pass before taking an optimizer step. 
+# Global-norm clipping rescales all available gradients by the same factor so
+# their concatenated L2 norm is at most max_l2_norm. Apply it after backward()
+# and before optimizer.step(); shared scaling preserves the gradient direction.
 def gradient_clipping(
     parameters: Iterable[nn.Parameter],
     max_l2_norm: float,
@@ -22,7 +22,7 @@ def gradient_clipping(
     if not gradients:
         return
 
-    # Step 1 : Compute total_squared_norm for all parameters. 
+    # ||g||_2 = sqrt(sum over parameters and tensor elements of g_i^2).
     total_squared_norm = torch.zeros((), device=gradients[0].device)
 
     for p in parameters:
@@ -30,12 +30,12 @@ def gradient_clipping(
             continue
         total_squared_norm += torch.sum(p.grad.detach() ** 2).to(total_squared_norm.device)
     total_norm = torch.sqrt(total_squared_norm)
-    
-    # Step 2 : If total_l2_norm <= max_l2_norm, then, we exit. Because, in this case, it will scale up the gradient if applied, which we want to avoid in the first place.
+
+    # Clipping must never enlarge a gradient already below the threshold.
     if total_norm <= max_l2_norm:
         return
 
-    # Step 3 : Otherwise scale-down 
+    # Detach the scale from autograd and update gradient buffers in place.
     scale = max_l2_norm / (total_norm + eps)
     with torch.no_grad():
         for parameter in parameters:

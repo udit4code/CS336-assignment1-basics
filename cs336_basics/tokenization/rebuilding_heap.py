@@ -15,17 +15,16 @@ class RebuildingHeapTokenizer(BaseTokenizer):
         Since pieces are still stored in a Python list,
         the heap is rebuilt after every merge.
         :class:`LinkedHeapTokenizer` removes this limitation.
+
+    With repeated ``heappush``, rebuilding a heap of O(L) candidates is
+    O(L log L). Repeating that for at most L-1 merges gives an O(L² log L)
+    worst-case bound; list reconstruction also costs O(L) per merge.
     """
 
     def __init__(self, vocab, merges, special_tokens=None):
         super().__init__(vocab, merges, special_tokens)
 
-        self.merge_rank = {
-            pair: rank
-            for rank, pair in enumerate(merges)
-        }
-
-
+        self.merge_rank = {pair: rank for rank, pair in enumerate(merges)}
 
     def _build_heap(self, pieces):
         """
@@ -33,13 +32,13 @@ class RebuildingHeapTokenizer(BaseTokenizer):
 
         Heap entries:
 
-            (rank, index)
+            (rank, index), so lower learned rank wins and index breaks ties
+            toward the leftmost occurrence.
         """
 
         heap = []
 
         for i in range(len(pieces) - 1):
-
             pair = (pieces[i], pieces[i + 1])
 
             rank = self.merge_rank.get(pair)
@@ -54,26 +53,17 @@ class RebuildingHeapTokenizer(BaseTokenizer):
 
         return heap
 
-
     def _merge_at(self, pieces, index):
 
         merged = pieces[index] + pieces[index + 1]
 
-        return (
-            pieces[:index]
-            + [merged]
-            + pieces[index + 2:]
-        )
+        return pieces[:index] + [merged] + pieces[index + 2 :]
 
     def _encode_pretoken(self, pretoken):
 
-        pieces = [
-            bytes([b])
-            for b in pretoken.encode("utf-8")
-        ]
+        pieces = [bytes([b]) for b in pretoken.encode("utf-8")]
 
         while True:
-
             heap = self._build_heap(pieces)
 
             if not heap:
@@ -86,7 +76,4 @@ class RebuildingHeapTokenizer(BaseTokenizer):
                 index,
             )
 
-        return [
-            self.token_to_id[p]
-            for p in pieces
-        ]
+        return [self.token_to_id[p] for p in pieces]

@@ -7,9 +7,7 @@ from functools import lru_cache
 def gpt2_bytes_to_unicode() -> dict[int, str]:
     """Return GPT-2's reversible mapping from bytes to printable characters."""
     byte_values = (
-        list(range(ord("!"), ord("~") + 1))
-        + list(range(ord("¡"), ord("¬") + 1))
-        + list(range(ord("®"), ord("ÿ") + 1))
+        list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
     )
     code_points = byte_values[:]
 

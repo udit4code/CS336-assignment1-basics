@@ -147,9 +147,7 @@ def benchmark_tiktoken(text):
     with open(VOCAB_PATH, encoding="utf-8") as vocab_file:
         raw_vocab = json.load(vocab_file)
     mergeable_ranks = {
-        decode_gpt2_token(token): token_id
-        for token, token_id in raw_vocab.items()
-        if token != "<|endoftext|>"
+        decode_gpt2_token(token): token_id for token, token_id in raw_vocab.items() if token != "<|endoftext|>"
     }
     enc = tiktoken.Encoding(
         name="local-gpt2",
@@ -168,7 +166,6 @@ def benchmark_tiktoken(text):
     ids: list[int] = []
 
     for _ in range(REPEAT):
-
         gc.collect()
         start = time.perf_counter()
 
@@ -177,18 +174,14 @@ def benchmark_tiktoken(text):
             allowed_special={"<|endoftext|>"},
         )
 
-        encode_times.append(
-            time.perf_counter() - start
-        )
+        encode_times.append(time.perf_counter() - start)
 
         gc.collect()
         start = time.perf_counter()
 
         enc.decode(ids)
 
-        decode_times.append(
-            time.perf_counter() - start
-        )
+        decode_times.append(time.perf_counter() - start)
 
     tracemalloc.start()
     enc.encode(text, allowed_special={"<|endoftext|>"})
@@ -213,19 +206,11 @@ def print_table(results):
 
     print()
 
-    print(
-        f"{'Implementation':<15}"
-        f"{'Encode(ms)':>15}"
-        f"{'Decode(ms)':>15}"
-        f"{'Tokens/sec':>18}"
-        f"{'MB/sec':>12}"
-        f"{'Peak(MB)':>12}"
-    )
+    print(f"{'Implementation':<15}{'Encode(ms)':>15}{'Decode(ms)':>15}{'Tokens/sec':>18}{'MB/sec':>12}{'Peak(MB)':>12}")
 
     print("-" * 87)
 
     for r in results:
-
         print(
             f"{r['Implementation']:<15}"
             f"{r['Encode(ms)']:>15.2f}"

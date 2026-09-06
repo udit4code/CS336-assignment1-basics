@@ -30,9 +30,7 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
             raise ValueError(f"d_k must be a positive even integer, got {d_k}")
 
         if not isinstance(max_seq_len, Integral) or isinstance(max_seq_len, bool):
-            raise TypeError(
-                f"max_seq_len must be an integer, got {type(max_seq_len).__name__}"
-            )
+            raise TypeError(f"max_seq_len must be an integer, got {type(max_seq_len).__name__}")
         if max_seq_len <= 0:
             raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")
 
@@ -88,32 +86,21 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"x must be a torch.Tensor, got {type(x).__name__}")
         if x.ndim < 2:
-            raise ValueError(
-                f"x must have shape (..., seq_len, d_k), got shape {tuple(x.shape)}"
-            )
+            raise ValueError(f"x must have shape (..., seq_len, d_k), got shape {tuple(x.shape)}")
         if not x.is_floating_point():
             raise TypeError(f"x must be floating point, got dtype {x.dtype}")
         if x.shape[-1] != self.d_k:
-            raise ValueError(
-                f"Expected x.shape[-1] == d_k == {self.d_k}, got {x.shape[-1]}"
-            )
+            raise ValueError(f"Expected x.shape[-1] == d_k == {self.d_k}, got {x.shape[-1]}")
 
         if not isinstance(token_positions, torch.Tensor):
-            raise TypeError(
-                "token_positions must be a torch.Tensor, "
-                f"got {type(token_positions).__name__}"
-            )
+            raise TypeError(f"token_positions must be a torch.Tensor, got {type(token_positions).__name__}")
         if token_positions.dtype not in (torch.int32, torch.int64):
-            raise TypeError(
-                "token_positions must have dtype torch.int32 or torch.int64, "
-                f"got {token_positions.dtype}"
-            )
+            raise TypeError(f"token_positions must have dtype torch.int32 or torch.int64, got {token_positions.dtype}")
         if token_positions.ndim < 1:
             raise ValueError("token_positions must have at least one dimension")
         if token_positions.ndim > x.ndim - 1:
             raise ValueError(
-                "token_positions has too many dimensions for x: "
-                f"got {token_positions.ndim} and {x.ndim}, respectively"
+                f"token_positions has too many dimensions for x: got {token_positions.ndim} and {x.ndim}, respectively"
             )
         if token_positions.shape[-1] != x.shape[-2]:
             raise ValueError(
@@ -121,9 +108,7 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
                 f"{token_positions.shape[-1]} and {x.shape[-2]}"
             )
         if x.device != self.cos_cached.device:
-            raise ValueError(
-                f"x is on {x.device}, but the RoPE cache is on {self.cos_cached.device}"
-            )
+            raise ValueError(f"x is on {x.device}, but the RoPE cache is on {self.cos_cached.device}")
         if token_positions.device != self.cos_cached.device:
             raise ValueError(
                 "token_positions and the RoPE cache must be on the same device, got "
@@ -134,8 +119,7 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
             max_position = int(token_positions.max().item())
             if min_position < 0 or max_position >= self.max_seq_len:
                 raise ValueError(
-                    "token_positions must lie in "
-                    f"[0, {self.max_seq_len}), got range [{min_position}, {max_position}]"
+                    f"token_positions must lie in [0, {self.max_seq_len}), got range [{min_position}, {max_position}]"
                 )
 
         # x has Shape: (..., seq_len, d_k)
@@ -143,7 +127,7 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
         # cos_cached: (max_seq_len, d_k/2) becomes (..., seq_len, d_k/2)
         cos = self.cos_cached[token_positions]
         sin = self.sin_cached[token_positions]
-        
+
         while cos.ndim < x.ndim:
             cos = cos.unsqueeze(-3)
             sin = sin.unsqueeze(-3)
@@ -158,7 +142,6 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
                 f"rotary input shape {rotary_input_shape}"
             ) from error
 
-
         # Rearrange the last dimension into pairs.
         # Before: (..., seq_len, d_k)
         # Example: [x0 x1 x2 x3 x4 x5 x6 x7]
@@ -170,11 +153,8 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
         #   [x6 x7]
         # ]
         # Every row is one 2D vector that will be rotated.
-        # The below rearrange(...) tells that "Treat the last dimension of length d_k as d_k/2 groups, where each group contains exactly 2 numbers."
-        # As a result, a tensor with shape (..., seq_len, 8) is reinterpreted as (..., seq_len, 4, 2), where each [x, y] pair is exactly the 2D vector that RoPE rotates. 
-        # In einops, parentheses mean split or combine. For example, rearrange(x, "(h w) -> h w", h = 4) mean that if x.shape is (12, ) (meaning a 1 x 12 row vector), then, 12 = 4 x 3. 
-        # So, the output is a (4, 3) tensor. So, (pair two) splits d_k  into pair x two , such that pair x two = d_k . We need to specifically mention two = 2 because einops knows d_k, but not pair or two.
-        # Once two is specified as 2, then, it can deduce pair as pair x two = d_k => pair = d_k / two = 8 / 2 = 4. So, our tensor is no longer a flat embedding after rearrange operation.
+        # Parentheses split the final axis: d_k = pair * two. Supplying two=2
+        # lets einops infer pair=d_k/2, so (...,S,8) becomes (...,S,4,2).
         x = rearrange(
             x,
             "... seq (pair two) -> ... seq pair two",
@@ -203,7 +183,7 @@ class RotaryPositionalEmbeddingWithReduce(nn.Module):
             (y1, y2),
             dim=-1,
         )
-        
+
         # Flatten the pairs back into the embedding dimension.
         # Before: (..., seq_len, d_k/2, 2)
         # After:  (..., seq_len, d_k)

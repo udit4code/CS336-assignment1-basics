@@ -3,6 +3,7 @@ import torch
 
 from cs336_basics.data import LanguageModelDataset
 
+
 def get_batch(
     dataset: LanguageModelDataset,
     batch_size: int,
@@ -22,7 +23,6 @@ def get_batch(
     targets = []
 
     for idx in start_indices:
-
         input_tokens, target_tokens = dataset[idx]
 
         inputs.append(input_tokens)

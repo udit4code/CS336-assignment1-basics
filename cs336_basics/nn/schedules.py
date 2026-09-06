@@ -1,11 +1,10 @@
 import math
 
 
-# Learning rate schedules improve training stability.
-# We first linearly warm up the learning rate to avoid unstable updates
-# at the beginning of training, then gradually decay it using a cosine
-# schedule so the optimizer takes smaller, more refined steps as training
-# progresses.
+# Linear warmup reaches alpha_max at T_w, then cosine decay reaches alpha_min
+# at T_c and stays there. Warmup can reduce instability from large early
+# updates; cosine decay gradually lowers the step size later in training.
+
 
 def get_lr_cosine_schedule(
     t: int,
@@ -22,15 +21,8 @@ def get_lr_cosine_schedule(
         return (t / T_w) * alpha_max
 
     if t <= T_c:
-        cosine_term = math.cos(
-            math.pi * (t - T_w) / (T_c - T_w)
-        )
+        cosine_term = math.cos(math.pi * (t - T_w) / (T_c - T_w))
 
-        return (
-            alpha_min
-            + 0.5
-            * (1 + cosine_term)
-            * (alpha_max - alpha_min)
-        )
+        return alpha_min + 0.5 * (1 + cosine_term) * (alpha_max - alpha_min)
 
     return alpha_min

@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from .base import BaseTokenizer
 
 
-
-# Linked List Node
 @dataclass(slots=True)
 class Node:
     """
@@ -36,19 +34,10 @@ class Node:
     prev: Node | None = None
     next: Node | None = None
 
-    # Lazy deletion.
-    #
-    # Heap entries may still point to this node after
-    # it has been merged.
-    #
-    # Instead of removing heap entries, we simply mark
-    # the node as dead.
+    # Old heap candidates may still reference a merged node. Marking it dead
+    # supports lazy invalidation without searching the heap for stale entries.
     alive: bool = True
 
-
-# ---------------------------------------------------------
-# Heap Entry
-# ---------------------------------------------------------
 
 @dataclass(order=True, slots=True)
 class HeapEntry:
@@ -67,9 +56,9 @@ class HeapEntry:
 
     position: int
 
-    left: Node = field(compare=False) 
-    
-    
+    left: Node = field(compare=False)
+
+
 class LinkedHeapTokenizer(BaseTokenizer):
     """
     Production-style educational BPE tokenizer.
@@ -83,15 +72,15 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
     Complexity
 
-        Build heap
+        Build heap with repeated heappush
 
-            O(L)
+            O(L log L) worst case
 
         Each merge
 
             O(log L)
 
-        Overall
+        Overall (at most L-1 merges and O(L) total candidate insertions)
 
             O(L log L)
     """
@@ -110,11 +99,8 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
         # Merge rank lookup.
         # Smaller rank => earlier merge learned during training.
-        self.merge_rank = {
-            pair: rank
-            for rank, pair in enumerate(merges)
-        }
-        
+        self.merge_rank = {pair: rank for rank, pair in enumerate(merges)}
+
     def _build_linked_list(self, pretoken: str) -> Node | None:
         """
         Convert a pretoken into a doubly linked list.
@@ -142,7 +128,6 @@ class LinkedHeapTokenizer(BaseTokenizer):
         prev = head
 
         for position, b in enumerate(data[1:], start=1):
-
             node = Node(bytes([b]), position=position)
 
             prev.next = node
@@ -150,8 +135,8 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
             prev = node
 
-        return head 
-    
+        return head
+
     def _collect_ids(self, head: Node | None) -> list[int]:
         """
         Traverse the linked list and convert each node
@@ -163,15 +148,12 @@ class LinkedHeapTokenizer(BaseTokenizer):
         node = head
 
         while node is not None:
-
-            ids.append(
-                self.token_to_id[node.value]
-            )
+            ids.append(self.token_to_id[node.value])
 
             node = node.next
 
         return ids
-    
+
     def _iter_nodes(self, head: Node):
         """
         Iterate over every node in the linked list.
@@ -181,17 +163,16 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
         while node is not None:
             yield node
-            node = node.next 
-            
+            node = node.next
+
     def _build_heap(self, head: Node | None) -> list[HeapEntry]:
         """
         Build the initial heap.
 
         Every adjacent mergeable pair becomes one HeapEntry.
 
-        Complexity
-        ----------
-        O(L)
+        Complexity is O(L log L) here because candidates are inserted with
+        heappush. Building a list followed by heapify would be O(L).
         """
 
         heap: list[HeapEntry] = []
@@ -202,13 +183,11 @@ class LinkedHeapTokenizer(BaseTokenizer):
         node = head
 
         while node.next is not None:
-
             pair = (node.value, node.next.value)
 
             rank = self.merge_rank.get(pair)
 
             if rank is not None:
-
                 heapq.heappush(
                     heap,
                     HeapEntry(
@@ -220,38 +199,30 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
             node = node.next
 
-        return heap 
-    
+        return heap
+
     def _valid_entry(self, entry: HeapEntry) -> bool:
         """
         Determine whether this heap entry still represents
         a valid merge candidate.
 
-        Heap entries are never removed after insertion.
-
-        Instead, we lazily discard stale entries when they
-        reach the top of the heap.
+        Entries are not eagerly removed when a merge invalidates them. They
+        are discarded later when popped from the heap.
         """
 
         left = entry.left
 
-        #
-        # Left node was already merged away.
-        #
+        # The left node may already have been merged away.
         if not left.alive:
             return False
 
-        #
-        # No right neighbour anymore.
-        #
+        # A tail node cannot begin a pair.
         if left.next is None:
             return False
 
         right = left.next
 
-        #
-        # Right neighbour was merged away.
-        #
+        # The right node may already have been merged away.
         if not right.alive:
             return False
 
@@ -262,17 +233,13 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
         rank = self.merge_rank.get(pair)
 
-        #
-        # Pair no longer mergeable.
-        #
+        # The current neighboring values may not form a learned merge.
         if rank is None:
             return False
 
-        #
-        # Pair changed.
-        #
-        return rank == entry.rank 
-    
+        # A changed rank means this entry describes an older neighboring pair.
+        return rank == entry.rank
+
     def _push_pair(
         self,
         heap: list[HeapEntry],
@@ -308,8 +275,8 @@ class LinkedHeapTokenizer(BaseTokenizer):
                 position=left.position,
                 left=left,
             ),
-        ) 
-        
+        )
+
     def _merge(self, left: Node) -> Node:
         """
         Merge
@@ -335,31 +302,23 @@ class LinkedHeapTokenizer(BaseTokenizer):
             position=left.position,
         )
 
-        #
-        # Connect previous neighbour.
-        #
+        # Splice the new node between the surviving neighbors.
         merged.prev = left.prev
 
         if merged.prev is not None:
             merged.prev.next = merged
 
-        #
-        # Connect next neighbour.
-        #
         merged.next = right.next
 
         if merged.next is not None:
             merged.next.prev = merged
 
-        #
-        # Old nodes become dead.
-        #
+        # Existing heap entries that reference either old node become stale.
         left.alive = False
         right.alive = False
 
-        return merged 
-    
-    
+        return merged
+
     def _push_neighbors(
         self,
         heap: list[HeapEntry],
@@ -383,8 +342,8 @@ class LinkedHeapTokenizer(BaseTokenizer):
         self._push_pair(
             heap,
             merged,
-        ) 
-        
+        )
+
     def _pop_valid_entry(
         self,
         heap: list[HeapEntry],
@@ -396,19 +355,17 @@ class LinkedHeapTokenizer(BaseTokenizer):
         """
 
         while heap:
-
             entry = heapq.heappop(heap)
 
             if self._valid_entry(entry):
                 return entry
 
         return None
-    
-    
+
     def _encode_pretoken(
-    self,
-    pretoken: str,
-) -> list[int]:
+        self,
+        pretoken: str,
+    ) -> list[int]:
         """
         Encode one regex pretoken using
         heap-based BPE.
@@ -437,24 +394,18 @@ class LinkedHeapTokenizer(BaseTokenizer):
             vocabulary ids
         """
 
-        #
-        # Build linked list.
-        #
+        # Start with one node per UTF-8 byte.
         head = self._build_linked_list(pretoken)
 
         if head is None:
             return []
 
-        #
-        # Initial merge candidates.
-        #
+        # Seed the heap with currently adjacent learned pairs.
         heap = self._build_heap(head)
 
-        #
-        # Greedy BPE.
-        #
+        # Greedily apply the lowest-rank valid merge, breaking equal-rank
+        # occurrences by their original left position.
         while True:
-
             entry = self._pop_valid_entry(heap)
 
             if entry is None:
@@ -464,22 +415,15 @@ class LinkedHeapTokenizer(BaseTokenizer):
 
             merged = self._merge(left)
 
-            #
-            # Update head if necessary.
-            #
+            # A merge at the first node replaces the list head.
             if merged.prev is None:
                 head = merged
 
-            #
-            # Only neighbouring pairs changed.
-            #
+            # Only pairs touching the merged node can be newly created.
             self._push_neighbors(
                 heap,
                 merged,
             )
 
-        #
-        # Convert final linked list
-        # into token ids.
-        #
+        # Convert the final segmentation to vocabulary IDs.
         return self._collect_ids(head)

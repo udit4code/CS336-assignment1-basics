@@ -7,7 +7,7 @@ from .base import BaseBPETrainer
 from .patterns import GPT2_PATTERN
 
 
-# Pre-create all byte objects once.
+# Reuse the 256 singleton byte values instead of constructing them per token.
 BYTE_TABLE = tuple(bytes([i]) for i in range(256))
 
 
@@ -33,17 +33,13 @@ def process_chunk_counter(
     update = counter.update
 
     for piece in pieces:
-
         if piece in special_tokens:
             continue
 
         for token in GPT2_PATTERN.findall(piece):
-
             encoded = token.encode("utf-8")
 
-            update([
-                tuple(BYTE_TABLE[b] for b in encoded)
-            ])
+            update([tuple(BYTE_TABLE[b] for b in encoded)])
 
     return counter
 
@@ -73,6 +69,7 @@ class WordFrequencyBPETrainer(BaseBPETrainer):
             pair_counter.items(),
             key=lambda item: (item[1], item[0]),
         )[0]
+
     def load_and_pretokenize_counter(
         self,
         input_path: str,
@@ -82,11 +79,7 @@ class WordFrequencyBPETrainer(BaseBPETrainer):
         if num_processes is None:
             num_processes = os.cpu_count() or 1
 
-        split_token = (
-            special_tokens[0].encode("utf-8")
-            if special_tokens
-            else b"<|endoftext|>"
-        )
+        split_token = special_tokens[0].encode("utf-8") if special_tokens else b"<|endoftext|>"
 
         with open(input_path, "rb") as f:
             boundaries = self.find_chunk_boundaries(
@@ -97,11 +90,7 @@ class WordFrequencyBPETrainer(BaseBPETrainer):
 
         work = list(zip(boundaries[:-1], boundaries[1:]))
 
-        special_pattern = (
-            "(" + "|".join(map(re.escape, special_tokens)) + ")"
-            if special_tokens
-            else None
-        )
+        special_pattern = "(" + "|".join(map(re.escape, special_tokens)) + ")" if special_tokens else None
 
         special_token_set = set(special_tokens)
 
@@ -161,11 +150,7 @@ class WordFrequencyBPETrainer(BaseBPETrainer):
             i = 0
 
             while i < len(word):
-                if (
-                    i < len(word) - 1
-                    and word[i] == left
-                    and word[i + 1] == right
-                ):
+                if i < len(word) - 1 and word[i] == left and word[i + 1] == right:
                     merged.append(left + right)
                     i += 2
                 else:

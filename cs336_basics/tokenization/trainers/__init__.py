@@ -8,7 +8,7 @@ from .integer import IntegerBPETrainer, train_bpe_integer
 from .naive import NaiveBPETrainer, train_bpe_naive
 from .word_frequency import WordFrequencyBPETrainer, train_bpe_word_frequency
 
-# Use the fastest bounded-memory implementation as the public default.
+# Use the bounded-memory integer-heap implementation as the public default.
 train_bpe = train_bpe_compacting
 
 __all__ = [

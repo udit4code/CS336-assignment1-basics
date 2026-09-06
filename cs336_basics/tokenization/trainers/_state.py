@@ -38,10 +38,7 @@ class IncrementalMergeState[Token: Hashable]:
 
     def __init__(self, word_counter: Mapping[Word[Token], int]) -> None:
         self.words = dict(enumerate(word_counter))
-        self.frequencies = {
-            word_id: word_counter[word]
-            for word_id, word in self.words.items()
-        }
+        self.frequencies = {word_id: word_counter[word] for word_id, word in self.words.items()}
         self.pair_counts: Counter[Pair[Token]] = Counter()
         self.pair_to_words: dict[Pair[Token], set[int]] = defaultdict(set)
 
@@ -137,11 +134,7 @@ class LazyMaxPairHeap[Token: Hashable]:
         return _MaxHeapEntry(count=count, order_key=self.pair_order(pair), pair=pair)
 
     def rebuild(self, pair_counts: Mapping[Pair[Token], int]) -> None:
-        self.heap = [
-            self._entry(pair, count)
-            for pair, count in pair_counts.items()
-            if count > 0
-        ]
+        self.heap = [self._entry(pair, count) for pair, count in pair_counts.items() if count > 0]
         heapq.heapify(self.heap)
 
     def refresh(

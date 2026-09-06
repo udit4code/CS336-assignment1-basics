@@ -7,7 +7,6 @@ from .base import BaseBPETrainer
 from .patterns import GPT2_PATTERN
 
 
-
 def process_chunk(
     input_path: str,
     start: int,
@@ -25,11 +24,10 @@ def process_chunk(
 
     text = raw.decode("utf-8", errors="ignore")
 
-    # Split on special tokens while keeping them in the output.
+    # Keep delimiters during splitting so exact special-token spans can be
+    # identified and excluded from learned pair statistics.
     if special_tokens:
-        special_pattern = re.compile(
-            "(" + "|".join(map(re.escape, special_tokens)) + ")"
-        )
+        special_pattern = re.compile("(" + "|".join(map(re.escape, special_tokens)) + ")")
         pieces = special_pattern.split(text)
     else:
         pieces = [text]
@@ -37,21 +35,17 @@ def process_chunk(
     words = []
 
     for piece in pieces:
-
-        # Ignore special tokens completely.
+        # Special tokens are inserted into the vocabulary separately and must
+        # not contribute ordinary BPE training pairs.
         if piece in special_tokens:
             continue
 
         pretokens = GPT2_PATTERN.findall(piece)
 
         for token in pretokens:
-            words.append(
-                [bytes([b]) for b in token.encode("utf-8")]
-            )
+            words.append([bytes([b]) for b in token.encode("utf-8")])
 
     return words
-
-
 
 
 class NaiveBPETrainer(BaseBPETrainer):
@@ -70,11 +64,7 @@ class NaiveBPETrainer(BaseBPETrainer):
 
         num_processes = num_processes or os.cpu_count() or 1
 
-        split_token = (
-            special_tokens[0].encode("utf-8")
-            if special_tokens
-            else b"<|endoftext|>"
-        )
+        split_token = special_tokens[0].encode("utf-8") if special_tokens else b"<|endoftext|>"
 
         with open(input_path, "rb") as f:
             boundaries = self.find_chunk_boundaries(
@@ -83,10 +73,7 @@ class NaiveBPETrainer(BaseBPETrainer):
                 split_token,
             )
 
-        work = [
-            (start, end)
-            for start, end in zip(boundaries[:-1], boundaries[1:])
-        ]
+        work = [(start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
 
         words = []
 
@@ -133,11 +120,7 @@ class NaiveBPETrainer(BaseBPETrainer):
         i = 0
 
         while i < len(word):
-            if (
-                i < len(word) - 1
-                and word[i] == pair[0]
-                and word[i + 1] == pair[1]
-            ):
+            if i < len(word) - 1 and word[i] == pair[0] and word[i + 1] == pair[1]:
                 merged.append(pair[0] + pair[1])
                 i += 2
             else:
@@ -177,4 +160,4 @@ def train_bpe_naive(
     vocab_size: int,
     special_tokens: list[str],
 ):
-    return NaiveBPETrainer().train(input_path, vocab_size, special_tokens) 
+    return NaiveBPETrainer().train(input_path, vocab_size, special_tokens)

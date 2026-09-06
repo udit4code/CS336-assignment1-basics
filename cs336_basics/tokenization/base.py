@@ -9,9 +9,8 @@ import regex as re
 
 from .byte_mapping import decode_gpt2_token
 
-GPT2_PRETOKENIZER = re.compile(
-    r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-)
+GPT2_PRETOKENIZER = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+
 
 class BaseTokenizer(ABC):
     def __init__(
@@ -35,16 +34,11 @@ class BaseTokenizer(ABC):
                 self.token_to_id[b] = next_id
                 next_id += 1
 
-        self.special_to_id = {
-            token: self.token_to_id[token.encode("utf-8")]
-            for token in self.special_tokens
-        }
+        self.special_to_id = {token: self.token_to_id[token.encode("utf-8")] for token in self.special_tokens}
 
         if self.special_tokens:
             ordered = sorted(self.special_tokens, key=len, reverse=True)
-            self.special_pattern = re.compile(
-                "(" + "|".join(re.escape(tok) for tok in ordered) + ")"
-            )
+            self.special_pattern = re.compile("(" + "|".join(re.escape(tok) for tok in ordered) + ")")
         else:
             self.special_pattern = None
 

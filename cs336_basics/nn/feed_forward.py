@@ -4,11 +4,11 @@ import torch.nn as nn
 from .linear import Linear
 
 
-# In Standard Transformer by Vaswani : we used : FFN(x) = W_2 (ReLU (W_1 @ x)) 
-# Modern LLMs like LLaMa and PaLM use SwiGLU. 
-# SwiGLU(x) = W_down (SiLU(W_gate) hadamard_product (W_up @ x)) 
-# where SiLU(z) = z * sigmoid(z) 
-# So, now, there are 3 layers : 
+# The original Transformer uses a two-layer ReLU FFN (usually with biases).
+# This bias-free implementation uses SwiGLU, as adopted by several modern LLMs:
+# SwiGLU(x) = W_down (SiLU(W_gate x) hadamard_product (W_up x))
+# where SiLU(z) = z * sigmoid(z)
+# So, now, there are 3 layers :
 
 #               x
 #               │
@@ -24,13 +24,13 @@ from .linear import Linear
 #                           down_proj
 #                               │
 #                               ▼
-#                            output 
+#                            output
 
-# So, x.shape = (batch_size, seq_len, d_model) . Mathematically, g = gate_proj(x) = x @ W_gate.T and u = up_proj(x) = x @ W_up.T . 
-# Here, shape of g = (batch_size, seq_len, d_ff) and shape of u = (batch_size, seq_len, d_ff) . 
-# After that, we do element-wise multiplication between g and sigmoid(g) to get g = g * sigmoid(g). 
-# Shape of g is still (batch_size, seq_len, d_ff). 
-# Now, we do down projection , y = down_proj(g * u) = (g * u) @ W_down.T . 
+# So, x.shape = (batch_size, seq_len, d_model) . Mathematically, g = gate_proj(x) = x @ W_gate.T and u = up_proj(x) = x @ W_up.T .
+# Here, shape of g = (batch_size, seq_len, d_ff) and shape of u = (batch_size, seq_len, d_ff) .
+# After that, we do element-wise multiplication between g and sigmoid(g) to get g = g * sigmoid(g).
+# Shape of g is still (batch_size, seq_len, d_ff).
+# Now, we do down projection , y = down_proj(g * u) = (g * u) @ W_down.T .
 # Shape of y = (batch_size, seq_len, d_model)
 
 
@@ -44,7 +44,7 @@ class SwiGLU(nn.Module):
     ):
         super().__init__()
 
-        # We go from (batch_size, seq_len, d_model) -> (batch_size, seq_len, d_ff) via up_proj.
+        # The gate projection expands d_model -> d_ff.
         self.gate_proj = Linear(
             d_model,
             d_ff,
@@ -52,8 +52,7 @@ class SwiGLU(nn.Module):
             dtype=dtype,
         )
 
-
-        # # We go from (batch_size, seq_len, d_model) -> (batch_size, seq_len, d_ff) via up_proj.
+        # Both gate and up branches expand d_model -> d_ff.
         self.up_proj = Linear(
             d_model,
             d_ff,
@@ -61,8 +60,7 @@ class SwiGLU(nn.Module):
             dtype=dtype,
         )
 
-
-        # We go from (batch_size, seq_len, d_model) -> (batch_size, seq_len, d_ff) via down_proj.
+        # The down projection contracts d_ff -> d_model.
         self.down_proj = Linear(
             d_ff,
             d_model,
@@ -71,14 +69,14 @@ class SwiGLU(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Step 1 : Compute gate = sigmoid(gate_proj(x)) = sigmoid(x @ W_g.T)
+        # SiLU(g) = g * sigmoid(g), where g = x @ W_gate^T.
         gate = self.gate_proj(x)
         gate = gate * torch.sigmoid(gate)
 
-        # Step 2 : Compute up = up_proj(x) = x @ W_u.T 
+        # Step 2 : Compute up = up_proj(x) = x @ W_u.T
         up = self.up_proj(x)
 
-        # Step 3 : Compute hidden = hadamard product between gate and up = gate * up 
+        # Step 3 : Compute hidden = hadamard product between gate and up = gate * up
         hidden = gate * up
 
         # Step 4 : Compute output = down_proj(hidden) = hidden @ W_d.T

@@ -7,42 +7,35 @@ class RankScanTokenizer(BaseTokenizer):
     """
     BPE tokenizer that repeatedly scans for the best-ranked merge.
 
-    Uses merge-rank lookup instead of replaying
-    the merge list sequentially.
+    At each step, scan current adjacent pairs and apply the occurrence whose
+    learned merge rank is smallest. Equal ranks resolve to the leftmost pair.
 
     Complexity:
         O(L²) per pretoken.
 
     where
 
-        L = number of byte pieces.
+        L = initial number of UTF-8 bytes. There are at most L-1 merges, and
+        each scan/list reconstruction is O(L).
     """
 
     def __init__(self, vocab, merges, special_tokens=None):
         super().__init__(vocab, merges, special_tokens)
 
-        self.merge_rank = {
-            pair: rank
-            for rank, pair in enumerate(merges)
-        }
+        self.merge_rank = {pair: rank for rank, pair in enumerate(merges)}
 
     def _find_best_merge(self, pieces):
         """
-        Returns
+        Return ``(left_index, rank)`` for the best adjacent learned pair.
 
-            (index, rank)
-
-        of the adjacent pair with the
-        smallest merge rank.
-
-        Returns None if no merge exists.
+        Iteration order supplies the leftmost tie-break for equal ranks.
+        Return ``None`` if no adjacent pair is mergeable.
         """
 
         best_index = None
         best_rank = float("inf")
 
         for i in range(len(pieces) - 1):
-
             pair = (pieces[i], pieces[i + 1])
 
             rank = self.merge_rank.get(pair)
@@ -60,30 +53,18 @@ class RankScanTokenizer(BaseTokenizer):
         return best_index, best_rank
 
     def _merge_at(self, pieces, index):
-        """
-        Merge one adjacent pair.
-        """
+        """Replace the pair beginning at ``index`` with its concatenation."""
 
         merged = pieces[index] + pieces[index + 1]
 
-        return (
-            pieces[:index]
-            + [merged]
-            + pieces[index + 2 :]
-        )
+        return pieces[:index] + [merged] + pieces[index + 2 :]
 
     def _encode_pretoken(self, pretoken):
-        """
-        Encode a single regex pretoken.
-        """
+        """Encode one regex pretoken, initially segmented into UTF-8 bytes."""
 
-        pieces = [
-            bytes([b])
-            for b in pretoken.encode("utf-8")
-        ]
+        pieces = [bytes([b]) for b in pretoken.encode("utf-8")]
 
         while True:
-
             result = self._find_best_merge(pieces)
 
             if result is None:
@@ -93,7 +74,4 @@ class RankScanTokenizer(BaseTokenizer):
 
             pieces = self._merge_at(pieces, index)
 
-        return [
-            self.token_to_id[p]
-            for p in pieces
-        ]
+        return [self.token_to_id[p] for p in pieces]

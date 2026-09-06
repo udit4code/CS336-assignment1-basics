@@ -4,6 +4,7 @@ from einops import einsum
 
 from .softmax import softmax
 
+
 def scaled_dot_product_attention_with_einops(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -14,17 +15,16 @@ def scaled_dot_product_attention_with_einops(
     Compute scaled dot-product attention.
 
     Args:
-        query: Shape = (..., seq_len, d_k. So, it can be (batch_size, seq_len, d_k)
-        key: Shape = (..., seq_len, d_k). So, it can be (batch_size, seq_len, d_k)
-        value: Shape = (..., seq_len, d_v). So, it can be (batch_size, seq_len, d_v)
-        mask: Optional boolean mask with Shape: (seq_len, seq_len)
+        query: Shape ``(..., query_length, d_k)``.
+        key: Shape ``(..., key_length, d_k)``.
+        value: Shape ``(..., key_length, d_v)``.
+        mask: Boolean mask broadcastable to ``(..., query_length, key_length)``.
             True  -> allow attention
             False -> block attention
 
-    Returns: Tensor of shape (..., seq_len, d_v). So, it can be (batch_size, seq_len, d_v)
+    Returns: Tensor of shape ``(..., query_length, d_v)``.
     """
 
-   
     # Step 1 :
     # Compute every query-key similarity.
     # Mathematically: Scores = Q @ K.T
@@ -50,8 +50,8 @@ def scaled_dot_product_attention_with_einops(
 
     # Step 3 : Apply the optional attention mask.
     if mask is not None:
-        # For tensor y, y.masked_fill(mask, value) returns a new tensor where every value of y corresponding to a True value in the boolean mask is replaced with value. 
-        # Elements where the mask is False are left unchanged. The input tensor y is not modified (unless you use the in-place version masked_fill_()).
+        # This API uses True for allowed positions, while masked_fill replaces
+        # True positions; invert the mask before filling disallowed logits.
         scores = scores.masked_fill(
             ~mask,
             float("-inf"),
@@ -64,11 +64,10 @@ def scaled_dot_product_attention_with_einops(
         dim=-1,
     )
 
-
     # Step 5 : Compute Weighted sum of Value vectors.
     # Each query uses its attention probabilities
     # to compute a weighted average over all values.
-    # Shape: 
+    # Shape:
     # Attention: (..., seq_len_q, seq_len_k)
     # Value:(..., seq_len_k, d_v)
     # Output: (..., seq_len_q, d_v)

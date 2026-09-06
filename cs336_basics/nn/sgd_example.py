@@ -1,20 +1,17 @@
-import torch 
+import torch
 
 from .sgd import StochasticGradientDescentOptimizer
- 
-weights = torch.nn.Parameter(5 * torch.randn((10, 10))) 
-optimizer = StochasticGradientDescentOptimizer(
-    params=[weights], 
-    lr=1
-) 
+
+weights = torch.nn.Parameter(5 * torch.randn((10, 10)))
+optimizer = StochasticGradientDescentOptimizer(params=[weights], lr=1)
 
 for t in range(10):
-    # We Reset the gradients for all learnable parameters 
-    optimizer.zero_grad() 
-    # Compute scalar loss 
+    # Gradients accumulate by default, so clear the previous iteration first.
+    optimizer.zero_grad()
+    # A scalar loss makes backward() seed its derivative with 1.
     loss = (weights**2).mean()
     print(f"loss value in iteration {t + 1} : {loss.item()}\n")
-    # Run backward pass 
+    # Populate weights.grad through reverse-mode automatic differentiation.
     loss.backward()
-    # Run Optimizer step
+    # Apply one parameter update using the stored gradient.
     optimizer.step()

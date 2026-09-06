@@ -36,15 +36,7 @@ def main():
 
     args = parser.parse_args()
 
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else (
-            "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
-        )
-    )
+    device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 
     dataset = LanguageModelDataset(
         tokens=args.train_data,
@@ -76,9 +68,7 @@ def main():
     step = 0
 
     while step < args.max_iters:
-
         for inputs, targets in dataloader:
-
             inputs = inputs.to(device)
             targets = targets.to(device)
 
@@ -107,15 +97,9 @@ def main():
             optimizer.step()
 
             if step % 10 == 0:
-
-                print(
-                    f"[Step {step:6d}] "
-                    f"Loss={loss.item():.4f} "
-                    f"LR={lr:.6e}"
-                )
+                print(f"[Step {step:6d}] Loss={loss.item():.4f} LR={lr:.6e}")
 
             if step > 0 and step % args.save_every == 0:
-
                 save_checkpoint(
                     model=model,
                     optimizer=optimizer,
@@ -123,9 +107,7 @@ def main():
                     out=args.checkpoint,
                 )
 
-                print(
-                    f"Checkpoint saved at step {step}"
-                )
+                print(f"Checkpoint saved at step {step}")
 
             step += 1
 

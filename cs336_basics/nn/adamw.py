@@ -6,7 +6,6 @@ from torch.optim import Optimizer
 
 
 class AdamW(Optimizer):
-
     def __init__(
         self,
         params,
@@ -36,14 +35,12 @@ class AdamW(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-
             lr = group["lr"]
             beta1, beta2 = group["betas"]
             eps = group["eps"]
             weight_decay = group["weight_decay"]
 
             for p in group["params"]:
-
                 if p.grad is None:
                     continue
 
@@ -60,11 +57,7 @@ class AdamW(Optimizer):
                 v = state["v"]
                 step = state["step"] + 1
 
-                alpha_t = (
-                    lr
-                    * math.sqrt(1 - beta2 ** step)
-                    / (1 - beta1 ** step)
-                )
+                alpha_t = lr * math.sqrt(1 - beta2**step) / (1 - beta1**step)
 
                 with torch.no_grad():
                     p -= lr * weight_decay * p
