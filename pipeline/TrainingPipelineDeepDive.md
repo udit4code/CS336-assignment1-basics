@@ -728,7 +728,146 @@ It is self-describing: it records model dimensions, tokenizer settings, data
 metadata, and optimization history without requiring the original CLI command.
 The PyTorch payload is written atomically; JSON sidecars are human-readable.
 
-## 13. Run and inspect training output
+## 13. Artifact formats: why `.pt` and what production uses
+
+An artifact is more than a file containing weights. At minimum, a consumer
+needs the learned tensors, model dimensions, tokenizer identity, vocabulary
+and special-token IDs, tensor dtype, and a schema/version. A *training
+checkpoint* additionally needs the optimizer and scheduler state, gradient
+scaler (if used), current step, and random-number-generator states so that a
+resume is statistically and operationally close to uninterrupted training.
+For Adam-like optimizers, the first- and second-moment tensors are commonly
+roughly two additional parameter-sized buffers (before accounting for
+master-precision copies), so a resumable checkpoint can be several times
+larger than the weights alone.
+A *release artifact* for inference usually needs only model weights plus the
+configuration and tokenizer files. A *serving artifact* may go one step
+further and contain a graph compiled for a particular accelerator.
+
+These are different contracts and do not have to use the same serialization
+format. Treating them as one file is convenient for a small project, but it
+becomes an avoidable coupling at production scale.
+
+### What `.pt` means in this repository
+
+`.pt` is a filename convention for a PyTorch-serialized object; it is not a
+universal model standard. In this pipeline, `torch.save` writes a dictionary
+whose important field is `model_state_dict`, along with configuration,
+tokenizer metadata, data metadata, metrics, and the schema version shown
+above. Checkpoints use the same family of serialization but also contain
+optimizer and RNG state. The `.pth` suffix is, in practice, another PyTorch
+convention and is not inherently safer, faster, or more portable than `.pt`.
+
+The final-artifact loader is explicitly configured with `weights_only=True`.
+That restricted mode accepts the tensors and primitive/container metadata
+written by this pipeline without reconstructing arbitrary Python globals.
+Training-resume loading currently needs the richer checkpoint payload and
+therefore must only consume artifacts that this project (or another trusted
+producer) created. Never load an untrusted pickle-backed checkpoint in a
+production process.
+
+### Strengths of `.pt`
+
+* **Native training round-trip.** `torch.save`/`torch.load` preserve a model
+  state dictionary and, for checkpoints, optimizer, scheduler, scaler, step,
+  and RNG state without a conversion step.
+* **Flexible payload.** Tensors can be accompanied by structured metadata,
+  metrics, and application-specific fields. This is useful while the schema
+  is evolving.
+* **Low integration cost.** PyTorch can load the artifact directly on CPU,
+  CUDA, or MPS with `map_location`, and the existing model constructor can
+  consume it immediately.
+* **Operational safety in this pipeline.** The writer uses an atomic temporary
+  file followed by a rename, while JSON sidecars make important metadata
+  inspectable without importing PyTorch.
+
+### Costs and risks of `.pt`
+
+* **Security.** Traditional PyTorch serialization is pickle-based. Loading an
+  arbitrary file can execute code; `weights_only=True` reduces this risk for
+  tensor-only loads, but it is not a substitute for provenance, checksums, and
+  access controls.
+* **Framework and code coupling.** The file assumes PyTorch and compatible
+  state-dictionary keys. Renaming a module, changing parameter names, or
+  changing tensor semantics can make an old artifact unloadable even when its
+  numerical tensors are valid.
+* **No universal serving contract.** A state dictionary does not specify a
+  portable execution graph, tokenizer server, KV-cache policy, batching
+  behavior, or accelerator kernels. A serving system still has to reconstruct
+  the Python model.
+* **Weakly enforced schema.** The application-level `schema_version` helps,
+  but `torch.save` itself does not validate required fields, shapes, dtypes,
+  tokenizer hashes, or compatibility. Those checks belong in the manifest and
+  loader.
+* **Scaling and distribution.** One monolithic file is awkward to shard,
+  stream from object storage, load concurrently across many workers, or
+  resume after only part of a distributed job was uploaded. Arbitrary Python
+  objects can also make files larger and less reproducible than tensor-only
+  storage.
+
+### Main alternatives
+
+| Format or family | Best fit | Systems advantages | Important trade-offs |
+| --- | --- | --- | --- |
+| **Safetensors** | Canonical portable weights | Tensor-only and designed to avoid arbitrary-code deserialization; fast, shape/dtype-aware, and naturally shardable; broad Hugging Face ecosystem | Does not represent an arbitrary Python training object. Store optimizer/RNG state separately, and keep config/tokenizer/manifest as separate files. |
+| **ONNX** | Cross-framework inference | An explicit computation graph can run through ONNX Runtime and multiple CPU/GPU/accelerator providers | Exporting decoder-only LLMs, dynamic sequence lengths, KV caches, custom operators, and the autoregressive generation loop can be non-trivial. It is not a training-resume format. |
+| **`torch.export` / AOTInductor** | PyTorch-native compiled deployment | Captures/compiles a constrained graph and can remove Python overhead or generate backend-specific kernels | More sensitive to supported operators, static/dynamic-shape constraints, PyTorch/compiler versions, and target hardware. This is a deployment representation, not a full checkpoint. TorchScript is a legacy option for older systems; prefer current PyTorch export/compile paths for new work. |
+| **GGUF** | Local/edge inference, commonly `llama.cpp` | Self-contained, portable, and efficient for quantized CPU/GPU inference with memory-mapped loading | Runtime and architecture support are narrower; conversion and quantization introduce accuracy/compatibility decisions; it is not suitable for resuming training. |
+| **TensorRT-LLM / TensorRT engine (`.engine`/`.plan`)** | NVIDIA latency/throughput optimization | Fuses kernels, uses hardware-specific tactics, and can provide excellent serving performance | Tied to NVIDIA GPU architecture, CUDA/TensorRT versions, plugins, and build-time choices. Usually needs rebuilding when the target stack changes and cannot resume training. |
+| **Distributed/sharded checkpoints (FSDP, DTensor, DeepSpeed ZeRO)** | Large-scale training resume | Each rank writes only its shard, avoiding a device- or host-memory gather; supports parallel I/O and very large models | Multiple files plus a manifest are operationally more complex and may depend on world size/topology. Consolidation or conversion is normally required before serving. |
+| **Raw tensor files plus a manifest (`.bin`, `.npy`, etc.)** | A controlled internal format | Simple, streamable, easy to shard and place in object storage; the manifest can be language-agnostic | The project must define its own layout, endianness, dtype/shape validation, versioning, and security rules. It has little interoperability by itself. |
+
+`.pt` remains a reasonable choice when the consumer is this PyTorch training
+code, especially for a small experiment or an exact resume. In a mature
+system, “production uses `.pt`” is too broad a statement: teams often retain a
+PyTorch/distributed checkpoint for recovery, publish safetensors as the
+canonical release, and build one or more target-specific serving engines.
+
+### Recommended lifecycle for this project
+
+~~~text
+  training run
+      |
+      v
+  resumable checkpoint (.pt or distributed shards)
+  = weights + optimizer/scheduler/scaler + step + RNG + provenance
+      |
+      | validate shapes, tokenizer/config compatibility, checksums
+      v
+  canonical release (model.safetensors shards + config/tokenizer/manifest)
+      |
+      +--> PyTorch service (load safetensors directly)
+      +--> ONNX / torch.export / AOTInductor for portable or compiled serving
+      +--> GGUF for quantized local inference
+      +--> TensorRT-LLM engine for a fixed NVIDIA deployment
+~~~
+
+For the current educational pipeline, keep `artifact.pt` because it makes
+the complete result easy to inspect and reload, and keep periodic `.pt`
+checkpoints because they are what make interruption recovery possible. If the
+artifact becomes a deployable model, add a conversion/publishing step rather
+than replacing the checkpoint contract. That step should emit tensor shards,
+SHA-256 checksums, tokenizer and configuration hashes, tensor dtype/shape
+metadata, the training-code commit, dependency versions, and a small
+round-trip test that compares logits before and after conversion.
+
+### Decision rule
+
+* Need an exact PyTorch resume: use `.pt` or a framework-supported distributed
+  checkpoint.
+* Need safe, portable model weights: publish safetensors plus explicit
+  metadata.
+* Need cross-framework execution: evaluate ONNX or another supported graph
+  interchange format.
+* Need compact local/CPU inference: consider GGUF after validating quality.
+* Need maximum throughput on a known NVIDIA fleet: compile a TensorRT-LLM
+  engine and pin its runtime/driver compatibility.
+
+There is no universally best format. The correct choice follows the required
+failure-recovery semantics, trust boundary, hardware fleet, deployment
+latency, and interoperability—not merely the file extension.
+
+## 14. Run and inspect training output
 
 ~~~bash
 uv run python -m pipeline train \
@@ -743,7 +882,7 @@ uv run python -m pipeline train \
 Use '--valid-data data/TinyStoriesV2-GPT4-valid.txt' for a separate validation
 corpus. The printed final path points to 'artifact.pt'.
 
-## 14. Failure modes
+## 15. Failure modes
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
@@ -755,7 +894,7 @@ corpus. The printed final path points to 'artifact.pt'.
 | CUDA/MPS not available | Backend is inaccessible | Configure runtime or use CPU |
 | unsupported checkpoint schema | Incompatible artifact version | Use a compatible version |
 
-## 15. Current boundaries
+## 16. Current boundaries
 
 Implemented: single-device CPU/CUDA/MPS training, deterministic preprocessing,
 memory-mapped arrays, warmup/cosine schedule, AdamW, clipping, evaluation,
@@ -769,7 +908,7 @@ Tests in 'tests/test_pipeline.py' protect deterministic encoding, tiny training,
 artifact loading, schema version, final step, and manifest creation. Existing
 CS336 tests protect the numerical components used by the pipeline.
 
-## 16. Running the same pipeline on Modal
+## 17. Running the same pipeline on Modal
 
 'modal_app.py' is a deployment adapter; it does not duplicate the training
 loop. It builds a Python 3.12 image, attaches an L4 GPU, mounts persistent
