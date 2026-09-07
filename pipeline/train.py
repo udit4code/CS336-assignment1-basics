@@ -18,27 +18,8 @@ from cs336_basics.nn import AdamW, TransformerLM, cross_entropy, get_lr_cosine_s
 
 from .artifacts import load_training_checkpoint, save_final_artifact, save_training_checkpoint
 from .config import DataConfig, ModelConfig, OptimizerConfig, RuntimeConfig, dataclass_dict
-from .prepare_data import encode_text_file, save_token_array, split_tokens
-
-
-def resolve_device(requested: str) -> torch.device:
-    """Resolve ``auto`` once, so every tensor uses the same device."""
-    if requested == "auto":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        if torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-    device = torch.device(requested)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA was requested but is not available")
-    if device.type == "mps" and not torch.backends.mps.is_available():
-        raise RuntimeError("MPS was requested but is not available")
-    return device
-
-
-def resolve_dtype(name: str) -> torch.dtype:
-    return {"float32": torch.float32, "float64": torch.float64, "float16": torch.float16, "bfloat16": torch.bfloat16}[name]
+from .prepare_data import END_OF_TEXT, encode_text_file, save_token_array, split_tokens
+from .runtime import resolve_device, resolve_dtype
 
 
 def seed_everything(seed: int) -> None:
@@ -50,7 +31,9 @@ def seed_everything(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def prepare_datasets(data: DataConfig, run_dir: Path) -> tuple[LanguageModelDataset, LanguageModelDataset, dict[str, Any]]:
+def prepare_datasets(
+    data: DataConfig, run_dir: Path
+) -> tuple[LanguageModelDataset, LanguageModelDataset, dict[str, Any]]:
     """Prepare train/validation arrays and return the existing dataset adapter."""
     data.validate()
     token_dir = run_dir / "tokens"
@@ -113,11 +96,16 @@ def _snapshot_parameters(model: TransformerLM) -> list[torch.Tensor]:
 
 def _update_l2_norm(model: TransformerLM, before: list[torch.Tensor]) -> float:
     """Measure the actual AdamW parameter displacement for this optimizer step."""
-    squared = sum(float(torch.sum((parameter.detach() - old) ** 2).item()) for parameter, old in zip(model.parameters(), before, strict=True))
+    squared = sum(
+        float(torch.sum((parameter.detach() - old) ** 2).item())
+        for parameter, old in zip(model.parameters(), before, strict=True)
+    )
     return squared**0.5
 
 
-def evaluate(model: TransformerLM, dataset: LanguageModelDataset, runtime: RuntimeConfig, device: torch.device) -> float:
+def evaluate(
+    model: TransformerLM, dataset: LanguageModelDataset, runtime: RuntimeConfig, device: torch.device
+) -> float:
     """Estimate validation loss with independent random windows."""
     model.eval()
     losses: list[float] = []
@@ -238,7 +226,15 @@ def run_training(
                 message += f" valid_loss={record['valid_loss']:.4f}"
             print(message)
         if step % runtime.checkpoint_interval == 0:
-            save_training_checkpoint(run_dir / "checkpoints" / f"step_{step:08d}.pt", model, optimizer, step, config_payload, data_metadata, metrics)
+            save_training_checkpoint(
+                run_dir / "checkpoints" / f"step_{step:08d}.pt",
+                model,
+                optimizer,
+                step,
+                config_payload,
+                data_metadata,
+                metrics,
+            )
             if on_persist is not None:
                 on_persist()
 
@@ -247,7 +243,12 @@ def run_training(
         run_dir,
         model,
         config_payload,
-        {"name": data.encoding, "vocab_size": encoding.n_vocab},
+        {
+            "name": data.encoding,
+            "vocab_size": encoding.n_vocab,
+            "endoftext_token": END_OF_TEXT,
+            "endoftext_id": encoding.eot_token,
+        },
         data_metadata,
         metrics,
         step,

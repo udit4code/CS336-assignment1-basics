@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import random
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -30,7 +31,11 @@ def _atomic_torch_save(payload: object, path: Path) -> None:
 
 def capture_rng_state() -> dict[str, Any]:
     """Capture every RNG used by the pipeline so resume is reproducible."""
-    state: dict[str, Any] = {"python": random.getstate(), "numpy": np.random.get_state(), "torch": torch.get_rng_state()}
+    state: dict[str, Any] = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
     if torch.cuda.is_available():
         state["cuda"] = torch.cuda.get_rng_state_all()
     return state
@@ -75,6 +80,45 @@ def load_training_checkpoint(path: Path, model: nn.Module, optimizer: Optimizer)
     model.load_state_dict(payload["model_state_dict"])
     optimizer.load_state_dict(payload["optimizer_state_dict"])
     restore_rng_state(payload["rng_state"])
+    return payload
+
+
+def load_final_artifact(
+    path: Path,
+    *,
+    map_location: str | torch.device = "cpu",
+) -> dict[str, Any]:
+    """Load and validate a final artifact for inference.
+
+    A run directory is accepted as a convenience and resolves to its
+    ``artifact.pt`` file. The restricted weights-only loader accepts the
+    tensors and primitive metadata produced by :func:`save_final_artifact`
+    without enabling arbitrary Python object reconstruction.
+    """
+    artifact_path = path / "artifact.pt" if path.is_dir() else path
+    if not artifact_path.is_file():
+        raise FileNotFoundError(f"model artifact does not exist: {artifact_path}")
+
+    payload = torch.load(artifact_path, map_location=map_location, weights_only=True)
+    if not isinstance(payload, dict):
+        raise ValueError("model artifact payload must be a dictionary")
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"unsupported artifact schema: {payload.get('schema_version')}")
+
+    required = {"step", "model_state_dict", "config", "tokenizer"}
+    missing = sorted(required - payload.keys())
+    if missing:
+        raise ValueError(f"model artifact is missing required fields: {', '.join(missing)}")
+    if not isinstance(payload["model_state_dict"], Mapping) or not payload["model_state_dict"]:
+        raise ValueError("model artifact contains an invalid model_state_dict")
+    if not isinstance(payload["config"], Mapping) or not isinstance(payload["config"].get("model"), Mapping):
+        raise ValueError("model artifact contains an invalid model configuration")
+    if not isinstance(payload["tokenizer"], Mapping):
+        raise ValueError("model artifact contains invalid tokenizer metadata")
+    if not isinstance(payload["tokenizer"].get("name"), str):
+        raise ValueError("model artifact tokenizer metadata is missing its name")
+    if not isinstance(payload["tokenizer"].get("vocab_size"), int):
+        raise ValueError("model artifact tokenizer metadata is missing its vocabulary size")
     return payload
 
 

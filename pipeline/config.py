@@ -7,6 +7,7 @@ inside a checkpoint for reproducibility.
 """
 
 from dataclasses import asdict, dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,40 @@ class RuntimeConfig:
             raise ValueError("batch_size and eval_batches must be positive")
         if self.eval_interval <= 0 or self.checkpoint_interval <= 0 or self.log_interval <= 0:
             raise ValueError("eval_interval, checkpoint_interval, and log_interval must be positive")
+        if self.dtype not in {"float32", "float64", "float16", "bfloat16"}:
+            raise ValueError(f"unsupported dtype: {self.dtype}")
+
+
+@dataclass(frozen=True)
+class InferenceConfig:
+    """Validated user controls for one text-generation request."""
+
+    artifact_path: Path
+    prompt: str
+    max_new_tokens: int
+    min_words: int
+    temperature: float
+    top_p: float
+    seed: int | None
+    device: str
+    dtype: str
+
+    def validate(self) -> None:
+        artifact_file = self.artifact_path / "artifact.pt" if self.artifact_path.is_dir() else self.artifact_path
+        if not artifact_file.is_file():
+            raise FileNotFoundError(f"model artifact does not exist: {artifact_file}")
+        if not isinstance(self.prompt, str) or not self.prompt:
+            raise ValueError("prompt must be a non-empty string")
+        if self.max_new_tokens < 0:
+            raise ValueError("max_new_tokens must be non-negative")
+        if self.min_words < 0:
+            raise ValueError("min_words must be non-negative")
+        if not math.isfinite(self.temperature) or self.temperature <= 0:
+            raise ValueError("temperature must be finite and greater than zero")
+        if not math.isfinite(self.top_p) or not 0 < self.top_p <= 1:
+            raise ValueError("top_p must be finite and in the interval (0, 1]")
+        if self.seed is not None and self.seed < 0:
+            raise ValueError("seed must be non-negative")
         if self.dtype not in {"float32", "float64", "float16", "bfloat16"}:
             raise ValueError(f"unsupported dtype: {self.dtype}")
 

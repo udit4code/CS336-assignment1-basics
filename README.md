@@ -41,6 +41,16 @@ uv run python -m pipeline train \
 
 Use `pipeline/README.md` for the full option list and checkpoint/resume details.
 
+Generate a completion from a final artifact with temperature and top-p
+sampling:
+
+```sh
+uv run python -m pipeline inference \
+  --artifact pipeline/artifacts/RUN/artifact.pt \
+  --prompt "Once upon a time" \
+  --max-new-tokens 100 --temperature 0.8 --top-p 0.95
+```
+
 Initially, all tests should fail with `NotImplementedError`s.
 To connect your implementation to the tests, complete the
 functions in [./tests/adapters.py](./tests/adapters.py).

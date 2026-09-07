@@ -128,6 +128,17 @@ class TransformerLM(nn.Module):
     ):
         super().__init__()
 
+        # Retain the architectural contract on the model itself. Inference can
+        # then validate token IDs and crop rolling context windows without
+        # duplicating configuration that could drift from the loaded weights.
+        self.vocab_size = vocab_size
+        self.context_length = context_length
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        self.num_layers = num_layers
+        self.theta = theta
+
         self.token_embedding = Embedding(
             num_embeddings=vocab_size,
             embedding_dim=d_model,
