@@ -2,7 +2,7 @@
 
 from .activation import SiLU
 from .adamw import AdamW
-from .attention import scaled_dot_product_attention
+from .attention import scaled_dot_product_attention, scaled_dot_product_attention_with_weights
 from .attention_einops import scaled_dot_product_attention_with_einops
 from .cross_entropy import cross_entropy
 from .embedding import Embedding
@@ -42,6 +42,7 @@ __all__ = [
     "get_lr_cosine_schedule",
     "gradient_clipping",
     "scaled_dot_product_attention",
+    "scaled_dot_product_attention_with_weights",
     "scaled_dot_product_attention_with_einops",
     "softmax",
 ]

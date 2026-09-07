@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from .attention_probe import probe_attention
+from .demo import run_demo
 from .model import build_random_model
 from .tokenize import tokenize_sentence
 
@@ -34,3 +35,19 @@ def test_probe_supports_batch_size_different_from_head_count() -> None:
     _, hidden = model.hidden_states(ids)
     trace = probe_attention(model.attention, hidden, positions)
     assert trace.probabilities.shape == (2, 6, 3, 3)
+
+
+def test_cli_runner_writes_token_level_artifacts(tmp_path) -> None:
+    html_file, json_file = run_demo(
+        "The cat sat.",
+        output_dir=tmp_path,
+        d_model=32,
+        num_heads=4,
+        seed=9,
+        device="cpu",
+        dtype="float32",
+    )
+    assert html_file.name == "token_attention.html"
+    assert json_file.name == "token_attention.json"
+    assert html_file.stat().st_size > 0
+    assert json_file.stat().st_size > 0

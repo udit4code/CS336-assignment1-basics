@@ -14,8 +14,19 @@ def scaled_dot_product_attention(
     value: torch.Tensor,
     mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Compute scaled dot-product attention and return only its output."""
+    output, _, _, _ = scaled_dot_product_attention_with_weights(query, key, value, mask)
+    return output
+
+
+def scaled_dot_product_attention_with_weights(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    mask: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Compute scaled dot-product attention.
+    Compute attention and expose its diagnostic tensors.
 
     Args:
         query: Shape ``(..., query_length, d_k)``.
@@ -25,12 +36,15 @@ def scaled_dot_product_attention(
             True  -> allow attention
             False -> block attention
 
-    Returns: Tensor of shape ``(..., query_length, d_v)``.
+    Returns:
+        ``(output, probabilities, raw_scores, masked_scores)``. The output has
+        shape ``(..., query_length, d_v)`` and both score tensors have shape
+        ``(..., query_length, key_length)``.
     """
 
     # QK^T forms every query-key dot product:
     # (..., Q, d_k) @ (..., d_k, K) -> (..., Q, K).
-    scores = torch.matmul(
+    raw_scores = torch.matmul(
         query,
         key.transpose(-2, -1),
     )
@@ -38,7 +52,8 @@ def scaled_dot_product_attention(
     # Dividing by sqrt(d_k) keeps score variance roughly independent of head
     # width, reducing softmax saturation when query/key components have unit variance.
     d_k = query.shape[-1]
-    scores = scores / math.sqrt(d_k)
+    raw_scores = raw_scores / math.sqrt(d_k)
+    scores = raw_scores
 
     # False means disallowed. Replacing those logits by -inf makes their
     # softmax probabilities zero, unless an entire row is masked (which yields NaNs).
@@ -62,4 +77,4 @@ def scaled_dot_product_attention(
         value,
     )
 
-    return output
+    return output, attention, raw_scores, scores

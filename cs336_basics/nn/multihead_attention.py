@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .attention import scaled_dot_product_attention
+from .attention import scaled_dot_product_attention_with_weights
 from .linear import Linear
 from .rotary_embedding import RotaryPositionalEmbedding
 
@@ -73,6 +73,27 @@ class MultiHeadSelfAttention(nn.Module):
         x: torch.Tensor,
         token_positions: torch.Tensor,
     ) -> torch.Tensor:
+        return self.forward_with_attention(x, token_positions)[0]
+
+    def forward_with_attention(
+        self,
+        x: torch.Tensor,
+        token_positions: torch.Tensor,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """Return output plus per-head probabilities and score tensors.
+
+        The first tuple element is identical to :meth:`forward`. The remaining
+        tensors are projected Q/K/V followed by tensors of shape ``(B, H, S, S)``:
+        probabilities, unmasked scaled scores, and masked scaled scores.
+        """
 
         # Input x has Shape (batch_size, seq_len, d_model)
         # So, we extract batch_size and seq_len out of its shape. We already have self.d_model .
@@ -178,7 +199,7 @@ class MultiHeadSelfAttention(nn.Module):
         # Shapes: Query has shape (batch_size, num_heads, seq_len, d_k)
         # Output of Attention will have shape (batch_size, num_heads, seq_len, d_v)
         # Here values also have head width d_k, so output is (B, H, S, d_k).
-        output = scaled_dot_product_attention(
+        output, attention_weights, raw_scores, masked_scores = scaled_dot_product_attention_with_weights(
             query,
             key,
             value,
@@ -207,7 +228,7 @@ class MultiHeadSelfAttention(nn.Module):
         # Step 9 : Final output projection.
         output = self.out_proj(output)  # output @ W_out.T
 
-        return output
+        return output, query, key, value, attention_weights, raw_scores, masked_scores
 
 
 # Doubt : If transpose() can change only the strides, why can't view() also just change the strides?

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import torch
 
-from cs336_basics.nn import MultiHeadSelfAttention, softmax
+from cs336_basics.nn import MultiHeadSelfAttention
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,26 +53,10 @@ def probe_attention(
     visualization path from silently diverging from production code.
     """
     _validate_inputs(mha, x, token_positions)
-    batch_size, seq_len, _ = x.shape
-
-    query = mha.q_proj(x).view(batch_size, seq_len, mha.num_heads, mha.d_k).transpose(1, 2)
-    key = mha.k_proj(x).view(batch_size, seq_len, mha.num_heads, mha.d_k).transpose(1, 2)
-    value = mha.v_proj(x).view(batch_size, seq_len, mha.num_heads, mha.d_k).transpose(1, 2)
-
-    if mha.use_rope:
-        query = mha.rope(query, token_positions)
-        key = mha.rope(key, token_positions)
-
-    raw_scores = torch.matmul(query, key.transpose(-2, -1)) / (mha.d_k**0.5)
-    causal_mask = torch.tril(
-        torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device),
+    output, query, key, value, probabilities, raw_scores, masked_scores = mha.forward_with_attention(
+        x,
+        token_positions,
     )
-    masked_scores = raw_scores.masked_fill(~causal_mask, float("-inf"))
-    probabilities = softmax(masked_scores, dim=-1)
-
-    head_output = torch.matmul(probabilities, value)
-    merged = head_output.transpose(1, 2).contiguous().view(batch_size, seq_len, mha.d_model)
-    output = mha.out_proj(merged)
 
     if verify_output:
         reference = mha(x, token_positions)

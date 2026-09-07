@@ -16,14 +16,62 @@ Checkpoint mode is reserved in the API but is not implemented yet. Passing
 `--mode checkpoint` fails explicitly instead of silently visualizing random
 weights.
 
-## Run
+## Command-line interface
 
-From the repository root:
+Run from the repository root:
 
 ```bash
 .venv/bin/python -m attention_deep_dive \
   --sentence "While waiting for the bus, Sam got frustrated, as it was too late"
 ```
+
+The CLI prints the token sequence and writes the HTML/JSON artifacts. See all
+options with:
+
+```bash
+.venv/bin/python -m attention_deep_dive --help
+```
+
+Important options:
+
+| Option | Default | Purpose |
+|---|---:|---|
+| `--sentence TEXT` | the demo sentence | Text to tokenize and inspect |
+| `--encoding-name NAME` | `gpt2` | Any encoding supported by tiktoken |
+| `--output-dir PATH` | `attention_deep_dive/outputs` | Artifact directory |
+| `--d-model INT` | `128` | Embedding/MHA width |
+| `--num-heads INT` | `4` | Equal-width attention heads |
+| `--theta FLOAT` | `10000` | RoPE base theta |
+| `--context-length INT` | `128` | Maximum RoPE position |
+| `--seed INT` | `0` | Reproducible random initialization |
+| `--device {auto,cpu,cuda,mps}` | `auto` | Execution device |
+| `--dtype {float32,float64,float16,bfloat16}` | `float32` | Model/activation dtype |
+| `--no-rope` | disabled | Disable RoPE inside MHA |
+| `--mode {random,checkpoint}` | `random` | Model source; checkpoint is reserved |
+| `--checkpoint-path PATH` | none | Reserved for future checkpoint support |
+
+Examples:
+
+```bash
+# Inspect a short custom sentence and put artifacts in /tmp.
+.venv/bin/python -m attention_deep_dive \
+  --sentence "The cat sat on the mat." \
+  --output-dir /tmp/cat-attention \
+  --seed 42
+
+# Use a different tiktoken encoding and CPU explicitly.
+.venv/bin/python -m attention_deep_dive \
+  --sentence "A small test" \
+  --encoding-name cl100k_base \
+  --device cpu \
+  --d-model 64 \
+  --num-heads 4
+```
+
+`d_model` must be divisible by `num_heads`, and the resulting head width must be
+even because the current MHA constructs its RoPE cache even when rotation is
+disabled. `float16`/`bfloat16` support depends on the selected device. The
+default `float32`/`auto` combination is the most portable.
 
 The command writes:
 
@@ -59,8 +107,11 @@ deliberately stays at token level and preserves exact UTF-8 token bytes.
 
 ## What the probe verifies
 
-The probe reuses the module's Q/K/V projections, RoPE object, custom softmax,
-head layout, and causal-mask convention. It reconstructs
+The probe calls `MultiHeadSelfAttention.forward_with_attention()`, which is the
+same projection/head-layout/RoPE/mask path used by ordinary `forward()`. That
+method delegates score computation to the shared scaled-dot-product attention
+implementation and returns the diagnostic tensors without duplicating the
+score or softmax logic. It reconstructs
 
 ```text
 softmax(QKᵀ / sqrt(d_k) + causal mask) V

@@ -26,6 +26,7 @@ class RandomAttentionModel(nn.Module):
         num_heads: int = 4,
         theta: float = 10_000.0,
         max_seq_len: int = 128,
+        use_rope: bool = True,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -37,6 +38,7 @@ class RandomAttentionModel(nn.Module):
             num_heads=num_heads,
             theta=theta,
             max_seq_len=max_seq_len,
+            use_rope=use_rope,
             device=device,
             dtype=dtype,
         )
@@ -55,6 +57,9 @@ def build_random_model(
     theta: float = 10_000.0,
     max_seq_len: int = 128,
     seed: int = 0,
+    use_rope: bool = True,
+    device: torch.device | str | None = None,
+    dtype: torch.dtype | None = None,
 ) -> RandomAttentionModel:
     """Build a deterministic random model for the educational visualization."""
     if vocab_size <= 0:
@@ -70,6 +75,9 @@ def build_random_model(
         num_heads=num_heads,
         theta=theta,
         max_seq_len=max_seq_len,
+        use_rope=use_rope,
+        device=device,
+        dtype=dtype,
     )
     model.eval()
     return model
@@ -85,6 +93,9 @@ def build_model(
     theta: float = 10_000.0,
     max_seq_len: int = 128,
     seed: int = 0,
+    use_rope: bool = True,
+    device: torch.device | str | None = None,
+    dtype: torch.dtype | None = None,
 ) -> RandomAttentionModel:
     """Model factory with a reserved, intentionally unimplemented checkpoint mode."""
     if mode == "checkpoint":
@@ -103,4 +114,7 @@ def build_model(
         theta=theta,
         max_seq_len=max_seq_len,
         seed=seed,
+        use_rope=use_rope,
+        device=device,
+        dtype=dtype,
     )

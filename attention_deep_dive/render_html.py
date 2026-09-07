@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 import torch
@@ -58,6 +59,7 @@ def write_attention_artifacts(
     output_dir: str | Path,
     tokenized: TokenizedSentence,
     trace: AttentionTrace,
+    metadata: Mapping[str, object] | None = None,
 ) -> tuple[Path, Path]:
     """Write an annotated token-level HTML map and machine-readable JSON."""
     output_path = Path(output_dir)
@@ -113,6 +115,7 @@ document.getElementById('head').addEventListener('change', function(event) {{
         "token_bytes_utf8_hex": [token.hex() for token in tokenized.token_bytes],
         "labels": list(tokenized.labels),
         "shape": {"batch": 1, "heads": num_heads, "sequence": len(tokenized.token_ids)},
+        "configuration": dict(metadata or {}),
         "attention_probabilities": _json_safe_tensor(trace.probabilities[0]),
         "raw_scores": _json_safe_tensor(trace.raw_scores[0]),
     }
