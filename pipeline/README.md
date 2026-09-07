@@ -101,5 +101,7 @@ Only load `.pt` artifacts from trusted sources. The pipeline uses PyTorch's
 restricted weights-only loader, but trust is still the correct artifact
 boundary for a production system.
 
-For the data flow and implementation rationale, see
-[TrainingPipelineDeepDive.md](TrainingPipelineDeepDive.md).
+For the training data flow and implementation rationale, see
+[TrainingPipelineDeepDive.md](TrainingPipelineDeepDive.md). For the complete
+decoding path and sampling mathematics, see
+[InferencePipelineDeepDive.md](InferencePipelineDeepDive.md).

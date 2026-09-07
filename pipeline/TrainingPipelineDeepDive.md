@@ -1,10 +1,9 @@
-# Training and inference pipeline deep dive
+# Training pipeline deep dive
 
 This document explains how 'pipeline train' converts a UTF-8 text corpus into a
-trained TransformerLM artifact and how 'pipeline inference' turns that artifact
-into a sampled completion. It is written as a design document for a beginner
-and as a maintenance reference for an engineer. The pipeline is an orchestration
-layer: the numerical components remain in cs336_basics.
+trained TransformerLM artifact. It is written as a design document for a
+beginner and as a maintenance reference for an engineer. The pipeline is an
+orchestration layer: the numerical components remain in cs336_basics.
 
 ## 1. End-to-end data flow
 
@@ -179,21 +178,19 @@ token count, batch size, context length, and desired number of epochs.
 ~~~text
 pipeline/
 ├── __main__.py       # python -m pipeline entry point
-├── cli.py             # train/inference subcommands
+├── cli.py             # train subcommand and shared CLI entry point
 ├── config.py          # typed configuration and validation
 ├── prepare_data.py    # text -> tiktoken IDs -> .npy + metadata
 ├── train.py           # device setup, datasets, optimization loop
-├── inference.py       # artifact + prompt -> generated completion
-├── runtime.py         # shared CPU/CUDA/MPS and dtype selection
+├── runtime.py         # CPU/CUDA/MPS and dtype selection
 ├── artifacts.py       # atomic checkpoints and final artifact
 ├── artifacts/         # generated runs; Git ignores generated contents
 └── cache/             # reserved for reusable preprocessing
 ~~~
 
-'pipeline/__main__.py' delegates to 'pipeline.cli.main'. The CLI implements
-both 'train' and 'inference'. Token-level sampling lives in
-'cs336_basics/generation.py'; the pipeline only loads the artifact and performs
-tiktoken encoding and decoding.
+'pipeline/__main__.py' delegates to 'pipeline.cli.main'. The training command
+turns validated CLI arguments into the typed configuration objects consumed by
+the training loop.
 
 ## 3. Stage 0: parse and validate configuration
 
@@ -300,6 +297,134 @@ The encoder rejects missing files, empty corpora, and out-of-range IDs. The
 current implementation reads one source file into memory to preserve exact
 tiktoken behavior. A future large-corpus version should add document-aware
 streaming without changing the downstream array contract.
+
+### Why do we insert '.npy' between '.txt' and the dataset?
+
+This is not an unnecessary model step. It is a deliberate **format boundary**
+between an authoritative source corpus and a training-friendly numerical
+representation.
+
+#### Start from first principles
+
+The model cannot consume characters or UTF-8 bytes directly. Its embedding
+table is an array indexed by integer token IDs. Therefore the conceptual
+pipeline is already:
+
+~~~text
+characters/bytes -> tokenizer -> integer token IDs -> model
+~~~
+
+The question is whether we recompute the tokenizer every time a training batch
+is requested, or materialize the token-ID stream once and reuse it. The
+pipeline chooses the latter:
+
+~~~text
+authoritative .txt
+      |
+      | one-time UTF-8 read, BPE encoding, validation
+      v
+one-dimensional uint32 token array in .npy
+      |
+      | np.load(..., mmap_mode="r")
+      v
+LanguageModelDataset
+      |
+      | lazy shifted slices: [t_i ... t_(i+S-1)] and [t_(i+1) ... t_(i+S)]
+      v
+random training batches on CPU, then accelerator tensors
+~~~
+
+The '.npy' file is therefore a **preprocessing cache**, not a second source of
+truth. The text file remains the human-readable corpus; the token array is the
+compiled form consumed by training. Its JSON sidecar records the tokenizer,
+vocabulary, source SHA-256, token count, dtype, and path so the cache can be
+audited and invalidated when its inputs change.
+
+#### Why not tokenize the '.txt' on every batch?
+
+A batch samples random starting positions in a token stream. To serve a request
+starting at token position 'i', the system needs the token IDs around that
+position, not merely characters around an arbitrary byte offset. BPE tokenization
+depends on neighboring bytes and merge rules, so random byte offsets require
+boundary handling and potentially retokenizing surrounding text. Repeating
+that work for every batch would put expensive CPU tokenization on the critical
+training path and make accelerator utilization depend on text-processing
+latency.
+
+Persisting token IDs turns the hot path into direct indexed array access:
+
+~~~python
+tokens = np.load("train.npy", mmap_mode="r")
+input_tokens = tokens[i : i + S]
+target_tokens = tokens[i + 1 : i + S + 1]
+~~~
+
+The dataset then copies only those small slices into writable 'torch.long'
+tensors. It does not construct Python strings or rerun BPE merges during
+training.
+
+#### Why '.npy' specifically?
+
+'NumPy .npy' is a small, portable binary container with an array header that
+records shape and dtype. It fits this workload because the token stream is
+already a flat homogeneous array. NumPy can memory-map it, and the existing
+dataset code can slice it using ordinary indexing. This gives us a simple
+contract with very few dependencies:
+
+~~~text
+train.npy: dtype=uint32, shape=(N,), values=[t_0, t_1, ..., t_(N-1)]
+~~~
+
+'uint32' uses four bytes per token and supports the GPT-2 vocabulary and most
+practical vocabularies. The dataset currently copies each sampled slice into a
+'torch.long' tensor because embedding lookup requires an integer indexing dtype;
+the persisted storage does not need to be 64-bit.
+
+#### Systems-engineering advantages
+
+| Property | Benefit |
+| --- | --- |
+| Separate preprocessing job | Tokenization cost is paid once per corpus/tokenizer configuration, not once per batch or epoch. |
+| Random access | A random window begins at an integer token offset; no text scanning is needed. |
+| Memory mapping | The operating system pages in only touched regions. A multi-gigabyte array does not need to be fully resident in Python RAM. |
+| Compact representation | Four-byte IDs avoid UTF-8 parsing and Python string/object overhead during training. |
+| Stable numerical contract | Every consumer sees the same one-dimensional IDs, dtype, and shape. |
+| Reproducibility | Source hash and tokenizer metadata make preprocessing choices inspectable and repeatable. |
+| Process sharing | Multiple workers can map the same file and rely on the OS page cache rather than each holding a complete Python copy. |
+| Clean train/validation boundaries | The pipeline can persist separate arrays so no sampled window crosses the split. |
+
+Memory mapping is not magic zero-memory access. A requested page still incurs a
+disk read on a cache miss, and random windows can cause page faults. The win is
+that storage is demand-paged and bounded by the operating system's cache policy,
+instead of eagerly materializing the entire token corpus in each process.
+
+#### Costs and failure modes
+
+| Cost | Engineering implication |
+| --- | --- |
+| Extra disk | The '.txt' and derived '.npy' coexist. Storage is roughly '4N' bytes for 'N' token IDs, plus a small header and metadata. |
+| One-time latency | A large corpus must be read, tokenized, validated, and written before the first training step. |
+| Current preparation peak memory | 'encode_text_file' currently reads the complete text and holds tiktoken's encoded list before creating the NumPy array. The training phase is memory-efficient, but preprocessing a 2 GB file can still require substantial RAM. |
+| Stale derived data | Reusing an array after changing the source text, tokenizer, special-token policy, or vocabulary silently trains on the wrong data unless metadata is checked. |
+| Tokenizer coupling | IDs are meaningful only with the exact tokenizer and merge vocabulary that produced them. A '.npy' file is not self-describing by itself; the sidecar is part of the contract. |
+| Fixed integer width | A tokenizer with IDs outside the 'uint32' range cannot use this storage dtype without changing the format. |
+| Monolithic file | A single array is simple, but interruption or a full rewrite is less convenient than independently versioned shards. Network filesystems may also have poor random-read latency. |
+| No compression | Raw arrays trade disk efficiency for fast indexed access. Compression would reduce storage but require decompression and complicate random reads. |
+| Portability details | Filesystem paths in metadata are informational; the actual array and sidecar must be copied together when moving a run between a Mac, Modal, or another machine. |
+
+The most important subtlety is that '.npy' improves **training-time** memory and
+latency; it does not make the current **preprocessing-time** encoder streaming.
+For a truly large production corpus, the next evolution would tokenize in
+document-aware chunks and write sharded '.npy' or raw binary files with an
+index. That preserves the same downstream token-array contract while bounding
+preprocessing memory, improving recovery after interruption, and allowing
+parallel ingestion.
+
+#### Design decision in one sentence
+
+We retain '.txt' as the reproducible source artifact and compile it once into a
+validated, compact, memory-mappable token artifact so the training loop can do
+fast random numerical access without repeatedly performing text processing.
 
 ## 6. Stage 3: validation split
 
@@ -599,158 +724,11 @@ The canonical 'artifact.pt' payload is:
 }
 ~~~
 
-It is self-describing: inference reconstructs model dimensions and tokenizer
-settings without the original CLI arguments. The PyTorch payload is written
-atomically; JSON sidecars are human-readable.
+It is self-describing: it records model dimensions, tokenizer settings, data
+metadata, and optimization history without requiring the original CLI command.
+The PyTorch payload is written atomically; JSON sidecars are human-readable.
 
-## 13. Inference: prompt to completion
-
-Inference is autoregressive: one forward pass samples one new token, appends
-that token to the context, and repeats. It does not call the training loss or
-optimizer.
-
-~~~text
-artifact.pt                         user prompt
-    |                                   |
-    v                                   v
-model config + state_dict          tiktoken.encode
-    |                                   |
-    +--------------+--------------------+
-                   v
-          TransformerLM(active IDs)
-                   |
-                   v
-        logits at the final position
-                   |
-                   v
-       temperature -> top-p -> sample
-                   |
-             append token ID
-                   |
-       EOT? yes -> stop and decode
-            no  -> repeat until limit
-~~~
-
-### 13.1 Artifact reconstruction
-
-'pipeline.artifacts.load_final_artifact' accepts either 'artifact.pt' or its
-run directory, maps tensors through CPU for portability, and validates the
-schema, state dictionary, model configuration, and tokenizer metadata. Only
-trusted '.pt' files should be loaded; the implementation additionally uses
-PyTorch's restricted weights-only loader instead of arbitrary object loading.
-
-'pipeline.inference.run_inference' reconstructs exactly the architecture
-recorded under 'config.model', loads its weights strictly, and then transfers
-the computation to the selected CPU, CUDA, or MPS device. The tokenizer name
-and vocabulary size must agree with both installed tiktoken and the model's
-output dimension. New artifacts record the EOT ID explicitly; older schema-v1
-artifacts derive it from the recorded tiktoken encoding.
-
-### 13.2 Prompt encoding
-
-The prompt is encoded with the same rule used for training:
-
-~~~python
-prompt_ids = encoding.encode(
-    prompt,
-    allowed_special={"<|endoftext|>"},
-)
-~~~
-
-The literal EOT marker is therefore one integer ID. An empty token sequence is
-rejected because a causal model needs at least one position from which to
-predict the next token. An EOT already present in the prompt is context; the
-loop stops only when it samples a new EOT.
-
-### 13.3 Temperature scaling
-
-For vocabulary logits 'z_i' and positive temperature 'T', the distribution is:
-
-~~~text
-q_i(T) = exp(z_i / T) / sum_j exp(z_j / T)
-~~~
-
-'T = 1' leaves relative logits unchanged. '0 < T < 1' magnifies logit
-differences and makes likely tokens more dominant. 'T > 1' compresses the
-differences and increases randomness. Zero is rejected: greedy decoding is a
-different policy and should be exposed explicitly rather than hidden behind an
-invalid softmax temperature. Sampling math is promoted to float32 even when
-model weights use lower precision.
-
-### 13.4 Nucleus (top-p) sampling
-
-After temperature scaling, 'sample_next_token' sorts tokens by decreasing
-probability. It chooses the smallest prefix '1..k' such that:
-
-~~~text
-sum(i=1..k) q_i >= p
-~~~
-
-Tokens outside that prefix receive negative-infinity logits. The remaining
-probabilities are renormalized, then 'torch.multinomial' samples one token.
-The token crossing the threshold is retained, so the candidate set is never
-empty. 'top_p = 1' preserves the full vocabulary.
-
-Temperature and top-p solve different problems: temperature reshapes the
-whole distribution, while top-p removes its low-probability tail. Temperature
-is applied first because changing it changes which tokens comprise the nucleus.
-
-### 13.5 Stopping and decoding
-
-'cs336_basics.generation.generate' repeats until either:
-
-1. it samples 'encoding.eot_token'; or
-2. it has sampled 'max_new_tokens'.
-
-For a requested minimum word count, 'pipeline.inference' supplies an
-'endoftext_allowed' callback. Until the decoded completion contains the
-requested number of words, 'sample_next_token' masks the EOT ID from the
-candidate distribution. This is tokenizer-aware policy in the pipeline rather
-than a word concept embedded in the token-level generator. Word count is based
-on Unicode word spans in decoded text (apostrophes remain inside words;
-hyphenated terms count as two).
-
-The raw result retains a sampled EOT ID so callers can audit why generation
-stopped. The pipeline excludes only that final sentinel when converting the
-completion IDs back to text. Structured JSON includes the prompt IDs,
-generated IDs, stop reason, device, dtype, and decoded text.
-
-### 13.6 Context-window and performance boundary
-
-The model was trained with a fixed context length 'S'. Once the full sequence
-is longer than 'S', each next-token call receives only its latest 'S' IDs. The
-oldest history is no longer visible, but the complete generated token list is
-still returned to the caller.
-
-The current attention implementation does not expose a key/value cache.
-Therefore every new token recomputes projections and attention over the active
-window. This correctness-first implementation is simple and uses the existing
-Transformer unchanged, but long completions are slower than production serving
-systems with KV caching. Batching, streaming, and KV-cache support remain
-separate optimizations.
-
-### 13.7 Inference command
-
-~~~bash
-uv run python -m pipeline inference \
-  --artifact pipeline/artifacts/tinystories-500/tinystories-500/artifact.pt \
-  --prompt "Once upon a time" \
-  --max-new-tokens 100 \
-  --temperature 0.8 \
-  --top-p 0.95 \
-  --seed 42 \
-  --device mps
-~~~
-
-The completion is written to stdout. Diagnostic metadata is written to stderr.
-'--output-json PATH' persists the structured result, and '--show-token-ids'
-prints token IDs for revision/debugging. To request at least 50 words, add
-'--min-words 50 --max-new-tokens 128'. If the token cap is reached before the
-minimum, inference raises an error instead of returning a shorter completion.
-A short 500-step smoke-test model may produce weak language even when this
-inference mechanism is working correctly.
-
-## 14. Run and inspect training output
+## 13. Run and inspect training output
 
 ~~~bash
 uv run python -m pipeline train \
@@ -765,7 +743,7 @@ uv run python -m pipeline train \
 Use '--valid-data data/TinyStoriesV2-GPT4-valid.txt' for a separate validation
 corpus. The printed final path points to 'artifact.pt'.
 
-## 15. Failure modes
+## 14. Failure modes
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
@@ -776,25 +754,22 @@ corpus. The printed final path points to 'artifact.pt'.
 | model vocab_size mismatch | CLI differs from tokenizer | Omit vocab-size override |
 | CUDA/MPS not available | Backend is inaccessible | Configure runtime or use CPU |
 | unsupported checkpoint schema | Incompatible artifact version | Use a compatible version |
-| invalid temperature/top-p | Sampling distribution is undefined | Use temperature > 0 and 0 < top-p <= 1 |
-| artifact/tokenizer mismatch | Weights and vocabulary are incompatible | Use the tokenizer recorded by the artifact |
 
-## 16. Current boundaries
+## 15. Current boundaries
 
 Implemented: single-device CPU/CUDA/MPS training, deterministic preprocessing,
 memory-mapped arrays, warmup/cosine schedule, AdamW, clipping, evaluation,
-atomic checkpoints, self-contained artifacts, and single-prompt autoregressive
-generation with temperature and top-p sampling.
+atomic checkpoints, and self-contained artifacts.
 
-Deferred explicitly: custom tokenizer selection, generation batching/streaming,
-KV caching, document-aware streaming for huge files, mixed precision,
-distributed training, and experiment tracking integrations.
+Deferred explicitly: custom tokenizer selection, document-aware streaming for
+huge files, mixed precision, distributed training, and experiment tracking
+integrations.
 
 Tests in 'tests/test_pipeline.py' protect deterministic encoding, tiny training,
 artifact loading, schema version, final step, and manifest creation. Existing
 CS336 tests protect the numerical components used by the pipeline.
 
-## 17. Running the same pipeline on Modal
+## 16. Running the same pipeline on Modal
 
 'modal_app.py' is a deployment adapter; it does not duplicate the training
 loop. It builds a Python 3.12 image, attaches an L4 GPU, mounts persistent
