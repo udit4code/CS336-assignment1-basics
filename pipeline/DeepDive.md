@@ -22,6 +22,157 @@ raw UTF-8 text
 Notation: B is batch size, S is context length, D is model width, H is head
 count, V is vocabulary size, and d_k = D/H is the per-head width.
 
+## What happens during training?
+
+This is the most important mental model: **one training step does not process
+the entire 2 GB text file**. A step processes one small batch of token windows.
+The 2 GB file is read and tokenized during data preparation; training then
+samples small slices from the resulting token array.
+
+### First principle: a language model learns next-token prediction
+
+Suppose the tokenizer converts a corpus into this one-dimensional stream:
+
+~~~text
+[t0, t1, t2, t3, t4, t5, ... , t(N-1)]
+~~~
+
+Each 't_i' is an integer token ID, not necessarily a complete word. For
+'context_length = S = 4', a supervised example is made by shifting the same
+stream by one position:
+
+~~~text
+input  = [t_i,   t_(i+1), t_(i+2), t_(i+3)]
+target = [t_(i+1), t_(i+2), t_(i+3), t_(i+4)]
+~~~
+
+The model receives the input sequence and must predict each corresponding
+target token. For example, the target for the first input position is 't_(i+1)',
+the token immediately after 't_i'.
+
+### What is one data point?
+
+In 'cs336_basics.data.LanguageModelDataset.__getitem__', data point 'i' is:
+
+~~~python
+input_tokens = tokens[i : i + S]
+target_tokens = tokens[i + 1 : i + S + 1]
+~~~
+
+For a token array of length 'N', there are 'N - S' valid starting positions.
+The windows overlap intentionally. This lets every token participate in many
+different contexts without duplicating a second copy of the corpus.
+
+The shapes and dtypes are:
+
+~~~text
+one input:   (S,), torch.long
+one target:  (S,), torch.long
+~~~
+
+### What does one training step sample?
+
+'cs336_basics.batching.get_batch' chooses 'B' random starting positions from
+the dataset and stacks their windows:
+
+~~~text
+inputs:  (B, S)
+targets: (B, S)
+~~~
+
+The current Modal configuration uses 'B = 8' and 'S = 128'. Therefore one
+optimizer step performs:
+
+~~~text
+8 windows x 128 positions = 1,024 token predictions
+~~~
+
+The random indices are sampled with replacement. Two examples may overlap, and
+the same example may be sampled again later. The step therefore does not mean
+"move to the next 1,024 tokens" and it does not guarantee complete corpus
+coverage.
+
+### What happens to the 2 GB file?
+
+The file has two distinct roles:
+
+1. During preparation, 'encode_text_file' reads the UTF-8 file once, runs
+   tiktoken, validates the IDs, and writes 'train.npy'.
+2. During training, 'LanguageModelDataset' memory-maps 'train.npy' and reads
+   only the sampled windows needed for the current batch.
+
+The text file is not reread from the beginning on every optimizer step. The
+current implementation does tokenize the complete file again when starting a
+new run; a persistent preprocessing cache can avoid that cost for future
+experiments.
+
+Also, file size in bytes is not token count. Tokenization depends on the text
+and vocabulary. The exact 'N' is recorded in:
+
+~~~text
+<run-dir>/tokens/train.json
+~~~
+
+### What does 100 or 500 steps cover?
+
+The number of token predictions processed is approximately:
+
+~~~text
+tokens_seen = steps x batch_size x context_length
+~~~
+
+With 'B = 8' and 'S = 128':
+
+~~~text
+100 steps = 100 x 8 x 128 = 102,400 token exposures
+500 steps = 500 x 8 x 128 = 512,000 token exposures
+~~~
+
+These are token **exposures**, not necessarily unique tokens. If the 2 GB
+corpus contains approximately 500 million tokens, 500 steps represent about
+0.1% of the corpus in exposure count. They are useful for a Modal smoke test,
+but they are not a complete pass over the dataset.
+
+The pipeline does not have a conventional sequential epoch because it samples
+random windows. An equivalent token-based epoch can be estimated as:
+
+~~~text
+steps_per_epoch ~= token_count / (batch_size x context_length)
+~~~
+
+For the exact estimate, use 'token_count' from 'train.json', not the 2 GB byte
+size.
+
+### What happens after a batch is sampled?
+
+For each step, 'pipeline/train.py:run_training' performs:
+
+~~~text
+1. Sample inputs and shifted targets
+2. TransformerLM(inputs) -> logits of shape (B, S, V)
+3. Cross-entropy(logits, targets) -> one scalar loss
+4. Backpropagation -> gradients for model parameters
+5. Global gradient clipping
+6. Learning-rate schedule
+7. AdamW parameter update
+~~~
+
+The loss averages the prediction error over all 'B x S' positions. The model
+is updated once after that average is computed. A checkpoint is only a saved
+snapshot of this state; creating a checkpoint does not process additional
+training data.
+
+### Is 500 steps a good choice?
+
+Yes, as an economical first Modal run. Use 50 warmup steps and checkpoints at
+125, 250, 375, and 500. This run validates CUDA setup, tokenization, loss
+behavior, throughput, metrics, and artifact persistence.
+
+For meaningful learning on the complete TinyStories corpus, increase the step
+count after measuring the actual throughput and validation-loss trend. A full
+corpus pass may require hundreds of thousands of steps, depending on the exact
+token count, batch size, context length, and desired number of epochs.
+
 ## 2. Code map
 
 ~~~text
@@ -107,7 +258,7 @@ text files.
 text = source.read_text(encoding="utf-8")
 encoding = tiktoken.get_encoding(encoding_name)
 token_ids = np.asarray(
-    encoding.encode_ordinary(text),
+    encoding.encode(text, allowed_special={"<|endoftext|>"}),
     dtype=np.uint32,
 )
 ~~~
@@ -115,9 +266,11 @@ token_ids = np.asarray(
 For the default 'gpt2' encoding, 'encoding.n_vocab' is 50,257. Each integer
 will later index one row of the model embedding table.
 
-'encode_ordinary' treats a literal '<|endoftext|>' as ordinary text. The
-current pipeline does not silently inject EOS tokens; document-boundary
-handling is an explicit future extension.
+'<|endoftext|>' is explicitly allowed as a special token. Every occurrence is
+therefore exactly one ID, 'encoding.eot_token'. Other special tokens remain
+disallowed, so unexpected markers fail fast instead of silently changing the
+training corpus. The pipeline does not insert EOS markers that were absent
+from the source; it preserves markers that are present.
 
 ### Output
 
@@ -487,9 +640,10 @@ CS336 tests protect the numerical components used by the pipeline.
 'modal_app.py' is a deployment adapter; it does not duplicate the training
 loop. It builds a Python 3.12 image, attaches an L4 GPU, mounts persistent
 Volumes at '/mnt/data' and '/mnt/artifacts', and calls 'run_training' with
-'device="cuda"'. The callback commits the Volume after every checkpoint and
-after the final artifact, so a preempted job can be resumed from persisted
-state.
+'device="cuda"'. Its economical first-run defaults are 500 steps, 50 warmup
+steps, and checkpoints at steps 125, 250, 375, and 500. The callback commits
+the Volume after every checkpoint and after the final artifact, so a preempted
+job can be resumed from persisted state.
 
 Install and authenticate the local Modal client:
 

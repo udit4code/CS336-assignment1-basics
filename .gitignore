@@ -169,6 +169,5 @@ cython_debug/
 # Generated pipeline state can be large and is reproducible from the raw data.
 # The artifact directory contains large, reproducible training outputs.
 pipeline/artifacts/**
-!pipeline/artifacts/.gitkeep
 pipeline/cache/*
 !pipeline/cache/.gitkeep

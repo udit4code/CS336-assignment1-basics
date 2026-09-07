@@ -10,13 +10,22 @@ with ``modal setup`` before running this file.
 
 from pathlib import Path
 
-import modal  # ty: ignore[unresolved-import]  # Optional dependency; installed in the Modal image/local client.
+import modal  # Optional dependency used by the Modal deployment adapter.
 
 
 APP_NAME = "cs336-training"
 DATA_MOUNT = "/mnt/data"
 ARTIFACT_MOUNT = "/mnt/artifacts"
 RUN_NAME = "tinystories-gpt2"
+
+# Defaults for the first economical Modal experiment. Five hundred steps is a
+# smoke/diagnostic run, not a full corpus pass; it lets us validate throughput,
+# loss behavior, and artifact persistence before spending more credits.
+MAX_STEPS = 500
+WARMUP_STEPS = 50
+CHECKPOINT_INTERVAL = 250
+EVAL_INTERVAL = 25
+LOG_INTERVAL = 25
 
 app = modal.App(APP_NAME)
 
@@ -46,7 +55,7 @@ def train_remote(
     train_filename: str = "TinyStoriesV2-GPT4-train.txt",
     valid_filename: str = "TinyStoriesV2-GPT4-valid.txt",
     run_name: str = RUN_NAME,
-    max_steps: int = 10_000,
+    max_steps: int = MAX_STEPS,
 ) -> str:
     """Train on an L4 and return the persistent artifact path.
 
@@ -55,6 +64,9 @@ def train_remote(
     """
     from pipeline.config import DataConfig, ModelConfig, OptimizerConfig, RuntimeConfig
     from pipeline.train import run_training
+
+    if max_steps <= WARMUP_STEPS:
+        raise ValueError(f"max_steps must be greater than warmup steps ({WARMUP_STEPS})")
 
     train_path = Path(DATA_MOUNT) / train_filename
     valid_path = Path(DATA_MOUNT) / valid_filename
@@ -78,7 +90,7 @@ def train_remote(
         optimizer_config=OptimizerConfig(
             learning_rate=3e-4,
             min_learning_rate=3e-5,
-            warmup_steps=1000,
+            warmup_steps=WARMUP_STEPS,
             max_steps=max_steps,
             weight_decay=0.1,
             max_grad_norm=1.0,
@@ -88,10 +100,10 @@ def train_remote(
             seed=0,
             device="cuda",
             dtype="float32",
-            eval_interval=100,
-            checkpoint_interval=1000,
+            eval_interval=EVAL_INTERVAL,
+            checkpoint_interval=CHECKPOINT_INTERVAL,
             eval_batches=10,
-            log_interval=10,
+            log_interval=LOG_INTERVAL,
         ),
         artifacts_dir=Path(ARTIFACT_MOUNT),
         run_name=run_name,
@@ -107,7 +119,7 @@ def main(
     train_filename: str = "TinyStoriesV2-GPT4-train.txt",
     valid_filename: str = "TinyStoriesV2-GPT4-valid.txt",
     run_name: str = RUN_NAME,
-    max_steps: int = 10_000,
+    max_steps: int = MAX_STEPS,
 ) -> None:
     artifact = train_remote.remote(train_filename, valid_filename, run_name, max_steps)
     print(f"Remote artifact: {artifact}")

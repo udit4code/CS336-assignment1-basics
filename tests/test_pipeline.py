@@ -1,11 +1,25 @@
+import json
 from pathlib import Path
 
 import numpy as np
+import tiktoken
 import torch
 
 from pipeline.config import DataConfig, ModelConfig, OptimizerConfig, RuntimeConfig
 from pipeline.prepare_data import encode_text_file
 from pipeline.train import run_training
+
+
+def test_endoftext_is_one_token(tmp_path: Path):
+    source = tmp_path / "corpus.txt"
+    source.write_text("before <|endoftext|> after", encoding="utf-8")
+    metadata = encode_text_file(source, tmp_path / "tokens.npy", "gpt2")
+
+    encoding = tiktoken.get_encoding("gpt2")
+    token_ids = np.load(metadata["token_file"])
+    assert int(encoding.eot_token) in token_ids
+    assert int(np.count_nonzero(token_ids == encoding.eot_token)) == 1
+    assert metadata["endoftext_id"] == encoding.eot_token
 
 
 def test_encode_text_file_is_reproducible(tmp_path: Path):
@@ -32,6 +46,6 @@ def test_tiny_training_writes_loadable_artifact(tmp_path: Path):
     assert payload["schema_version"] == 1
     assert payload["step"] == 2
     assert (artifact.parent / "manifest.json").is_file()
-    metrics = __import__("json").loads((artifact.parent / "metrics.json").read_text())
+    metrics = json.loads((artifact.parent / "metrics.json").read_text())
     assert {"train_loss", "learning_rate", "gradient_norm_before_clip", "parameter_norm", "tokens_seen"} <= set(metrics["fields"])
     assert len(metrics["records"]) == 2
