@@ -1,6 +1,7 @@
 """End-to-end language-model training built on the existing CS336 modules."""
 
 from datetime import UTC, datetime
+from collections.abc import Callable
 import json
 from pathlib import Path
 import random
@@ -136,6 +137,7 @@ def run_training(
     artifacts_dir: Path,
     run_name: str | None = None,
     resume: Path | None = None,
+    on_persist: Callable[[], None] | None = None,
 ) -> Path:
     """Run training and return the path to the final self-contained artifact."""
     data.validate()
@@ -237,9 +239,11 @@ def run_training(
             print(message)
         if step % runtime.checkpoint_interval == 0:
             save_training_checkpoint(run_dir / "checkpoints" / f"step_{step:08d}.pt", model, optimizer, step, config_payload, data_metadata, metrics)
+            if on_persist is not None:
+                on_persist()
 
     encoding = tiktoken.get_encoding(data.encoding)
-    return save_final_artifact(
+    artifact_path = save_final_artifact(
         run_dir,
         model,
         config_payload,
@@ -248,3 +252,6 @@ def run_training(
         metrics,
         step,
     )
+    if on_persist is not None:
+        on_persist()
+    return artifact_path

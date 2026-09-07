@@ -481,3 +481,46 @@ and experiment tracking integrations.
 Tests in 'tests/test_pipeline.py' protect deterministic encoding, tiny training,
 artifact loading, schema version, final step, and manifest creation. Existing
 CS336 tests protect the numerical components used by the pipeline.
+
+## 16. Running the same pipeline on Modal
+
+'modal_app.py' is a deployment adapter; it does not duplicate the training
+loop. It builds a Python 3.12 image, attaches an L4 GPU, mounts persistent
+Volumes at '/mnt/data' and '/mnt/artifacts', and calls 'run_training' with
+'device="cuda"'. The callback commits the Volume after every checkpoint and
+after the final artifact, so a preempted job can be resumed from persisted
+state.
+
+Install and authenticate the local Modal client:
+
+~~~bash
+uv add --dev modal
+modal setup
+~~~
+
+Create and populate the Volumes:
+
+~~~bash
+modal volume create cs336-training-data
+modal volume create cs336-training-artifacts
+modal volume put cs336-training-data data/TinyStoriesV2/TinyStoriesV2-GPT4-train.txt /TinyStoriesV2-GPT4-train.txt
+modal volume put cs336-training-data data/TinyStoriesV2/TinyStoriesV2-GPT4-valid.txt /TinyStoriesV2-GPT4-valid.txt
+~~~
+
+Launch training:
+
+~~~bash
+modal run modal_app.py
+~~~
+
+The remote run writes 'tinystories-gpt2/artifact.pt' into the artifacts
+Volume. Download it back to the local repository with:
+
+~~~bash
+modal volume get cs336-training-artifacts /tinystories-gpt2 ./pipeline/artifacts/tinystories-gpt2 --force
+~~~
+
+For long jobs, keep 'run_name' stable and use a persisted checkpoint when
+resuming. The current wrapper exposes a fixed baseline configuration; production
+experiments should promote those values to Modal function parameters or a
+versioned config file rather than editing the wrapper for every run.
