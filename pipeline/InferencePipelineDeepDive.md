@@ -455,6 +455,91 @@ T > 1       flatter; more tokens receive meaningful probability
 Temperature zero is rejected. Greedy argmax decoding is a separate decoding
 policy and should not be hidden behind an invalid division by zero.
 
+### What problem does temperature solve?
+
+The model's logits describe its relative preference among tokens, but inference
+must turn those preferences into a decision. There are two undesirable
+extremes:
+
+~~~text
+argmax only: always choose the single highest-scoring token
+             -> deterministic, but repetitive and unable to express alternatives
+
+unfiltered sampling: sample from the whole softmax distribution
+                    -> diverse, but tiny-probability tail tokens can be harmful
+~~~
+
+Temperature is a controlled way to change how decisive the distribution is
+without changing the model parameters or the ordering of tokens. For any two
+tokens `i` and `j`:
+
+~~~text
+q_i(T) / q_j(T) = exp((z_i - z_j) / T)
+~~~
+
+The sign of `z_i - z_j` does not change for positive `T`, so temperature never
+changes the ranking. It changes the *odds*: a smaller `T` magnifies logit gaps,
+while a larger `T` compresses them. The entropy
+
+~~~text
+H(q) = -sum_i q_i log(q_i)
+~~~
+
+generally increases as `T` increases for a fixed non-uniform logit vector. In
+fact, with `Z = sum_i exp(z_i/T)`, differentiating the entropy gives:
+
+~~~text
+dH/dT = Var_q(z) / T^3 >= 0
+~~~
+
+The derivative is zero only when all logits are equal (already uniform). This
+formalizes the intuition that increasing temperature removes confidence, while
+decreasing it concentrates probability mass.
+
+In the limiting cases:
+
+~~~text
+T -> 0+       probability concentrates on the argmax token
+T = 1         ordinary model softmax
+T -> infinity  distribution approaches uniform over the vocabulary
+~~~
+
+For example, logits `[2, 1, 0]` produce approximately:
+
+| Temperature | Probability vector | Interpretation |
+| ---: | --- | --- |
+| `0.5` | `[0.867, 0.117, 0.016]` | Strongly favors the model's first choice |
+| `1.0` | `[0.665, 0.245, 0.090]` | Original softmax distribution |
+| `2.0` | `[0.506, 0.307, 0.186]` | Makes alternatives substantially more likely |
+
+The purpose is not to make the model “more intelligent.” It chooses a point on
+the quality–diversity frontier implied by the model's own uncertainty:
+
+- Lower temperature is useful when a coherent, conservative continuation is
+  preferred. It reduces accidental deviations, but can expose a systematic
+  model error more consistently and can become repetitive.
+- Higher temperature is useful when multiple continuations are acceptable or
+  novelty matters. It increases exploration, but also increases the chance of
+  unlikely, incoherent, or factually unsupported tokens.
+- Temperature cannot recover knowledge absent from the model. It only changes
+  how aggressively the existing distribution is sampled.
+
+Temperature is therefore an inference-time policy knob, not a training
+hyperparameter. Changing it does not update weights, alter the prompt, or
+change the model's logits; it changes only the distribution used by the random
+sampler at each step.
+
+The current implementation computes `logits / T`, promotes that vector to
+float32, and passes it through the project's numerically stable softmax. The
+equivalent stable calculation subtracts the maximum scaled logit `m`:
+
+~~~text
+q_i(T) = exp(z_i/T - m) / sum_j exp(z_j/T - m)
+~~~
+
+Subtracting the same constant from every logit leaves the probabilities exactly
+unchanged mathematically while keeping exponentials in a safe numerical range.
+
 ## 9. Phase 7 — apply nucleus (top-p) filtering
 
 Temperature produces a distribution over all `V` tokens. Nucleus sampling
@@ -470,11 +555,129 @@ removes its low-probability tail dynamically:
 `top_p=1` keeps the full vocabulary. A very small `p` may keep only the most
 likely token. The first token crossing the threshold is retained, so the
 candidate set can never be empty. Temperature is applied first because it
-changes the ranking and cumulative masses used to define the nucleus.
+changes the cumulative masses used to define the nucleus. It does not change
+the ranking for positive `T`.
 
 The sampler can also suppress selected IDs on a particular step. This is how
 minimum-word generation temporarily masks only the EOT ID while leaving all
 ordinary tokens available.
+
+### What problem does top-p solve?
+
+Even a well-trained language model assigns non-zero probability to a very large
+number of tokens. The long tail often contains tokens that are individually
+possible but collectively harmful for open-ended generation: malformed
+continuations, irrelevant topic shifts, or unlikely punctuation/subword joins.
+Sampling from the complete vocabulary gives that tail a chance to enter the
+context, after which later predictions can drift further.
+
+A fixed `top-k` cutoff is not ideal because the number of plausible choices
+varies by context. After “The capital of France is” the distribution may be
+sharp and need only a few candidates; after “She felt” it may be broad and need
+many. Top-p adapts the candidate-set size to the distribution's concentration.
+
+Let the temperature-scaled probabilities sorted in descending order be
+`q_(1) >= q_(2) >= ... >= q_(V)`. Define:
+
+~~~text
+k(p) = min { k : sum_(i=1..k) q_(i) >= p }
+S_p = {the token IDs corresponding to q_(1), ..., q_(k(p))}
+~~~
+
+The filtered distribution is:
+
+~~~text
+q'_i = q_i / sum_(j in S_p) q_j,   if i in S_p
+       0,                           otherwise
+~~~
+
+Thus top-p changes the *support* of the distribution, then renormalizes it. It
+does not change the relative odds between two retained tokens:
+
+~~~text
+q'_i / q'_j = q_i / q_j,  for i,j in S_p
+~~~
+
+Example, for probabilities `[0.55, 0.25, 0.10, 0.06, 0.04]`:
+
+| `p` | Retained original probabilities | Number of candidates |
+| ---: | --- | ---: |
+| `0.50` | `[0.55]` | 1 |
+| `0.80` | `[0.55, 0.25]` | 2 |
+| `0.90` | `[0.55, 0.25, 0.10]` | 3 |
+| `1.00` | all five | 5 |
+
+For `p=0.80`, the first two probabilities sum to exactly `0.80`; after
+renormalization they become `[0.6875, 0.3125]`. The low-probability tail is
+unavailable for this step, but the two plausible alternatives still compete
+randomly.
+
+### How changing `top_p` changes behavior
+
+- `top_p` near `1` retains most of the model distribution. Output is more
+  diverse, but the tail is less constrained.
+- A middle value such as `0.90` or `0.95` removes only the least-supported tail
+  and is often a useful balance for open-ended text.
+- A low value such as `0.50` or `0.70` can make output conservative and
+  repetitive. When the model is confident, it may effectively become nearly
+  greedy; when the model is uncertain, it still retains multiple candidates.
+- `top_p=1` is not greedy. It means no nucleus truncation; random sampling
+  still occurs across the full softmax distribution.
+
+The candidate count is the important observable, not the numeric value alone.
+The same `top_p=0.95` may retain three tokens in one context and hundreds in
+another because it follows cumulative probability mass rather than a fixed
+number of tokens.
+
+Top-p is a heuristic decoding constraint, not a claim that excluded tokens
+have zero probability under the trained model. The original softmax assigned
+them positive mass; the decoding policy deliberately sets that mass to zero for
+this generated step and renormalizes the remainder.
+
+### Why temperature must precede top-p
+
+The positive-temperature transform preserves token ranking, but it changes the
+probability gaps and therefore changes cumulative mass. Consider a peaked
+distribution: at low `T`, the first token may already exceed `p`, giving a
+one-token nucleus. At high `T`, probability spreads across many tokens, so the
+same `p` retains a larger set. The pipeline intentionally performs:
+
+~~~text
+logits -> divide by temperature -> softmax -> sort/cumulative top-p -> renormalize -> sample
+~~~
+
+The implementation sorts the temperature-scaled logits directly; because
+softmax is strictly increasing in a scalar logit, this produces the same order
+as sorting probabilities and avoids an unnecessary probability sort.
+
+Applying top-p first and temperature afterward would define the nucleus using a
+different distribution from the one ultimately sampled, making the parameter
+semantics harder to reason about. The current order gives `top_p` a clear
+meaning: cumulative mass under the temperature-adjusted distribution.
+
+### Temperature and top-p together
+
+They control different axes:
+
+| Control | Mathematical action | Main behavioral effect |
+| --- | --- | --- |
+| Temperature | Rescales every logit before normalization | Changes concentration/entropy while preserving ranking |
+| Top-p | Removes the low-mass suffix after sorting | Changes which tokens are eligible at all |
+
+Some representative policies are:
+
+~~~text
+T=1.0, p=1.0   ordinary stochastic sampling from the complete softmax
+T<1.0, p<1.0  conservative sampling: sharpen, then remove the tail
+T>1.0, p=1.0  exploratory sampling: flatten without hard truncation
+T>1.0, p<1.0  broaden alternatives, then impose a probability-mass guardrail
+~~~
+
+The best values depend on model calibration, domain, prompt, and risk
+tolerance. A high temperature can make top-p retain many candidates; a low
+temperature can make the same top-p retain very few. Neither setting is
+universally “better”—they encode how much uncertainty the application is
+willing to expose in the generated text.
 
 ## 10. Phase 8 — enforce minimum words and stop conditions
 
