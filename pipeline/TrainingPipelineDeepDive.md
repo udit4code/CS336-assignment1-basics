@@ -867,7 +867,160 @@ There is no universally best format. The correct choice follows the required
 failure-recovery semantics, trust boundary, hardware fleet, deployment
 latency, and interoperability—not merely the file extension.
 
-## 14. Run and inspect training output
+## 14. Predicting artifact size from the model configuration
+
+The useful napkin-math rule is:
+
+~~~text
+  bytes for dense weights = parameter_count × bytes_per_parameter
+~~~
+
+The parameter count can be derived from the architecture rather than guessed
+from the file size. For this implementation, let:
+
+* `V` = vocabulary size;
+* `D` = model width (`d_model`);
+* `L` = number of Transformer blocks (`num_layers`); and
+* `F` = SwiGLU hidden width (`d_ff`).
+
+There are no linear biases in this code. The token embedding and the output
+projection are also **not weight-tied**, so both contain a `V × D` matrix.
+One block contains:
+
+~~~text
+  attention projections:  Q, K, V, O = 4 × D × D
+  SwiGLU projections:     gate, up, down = 3 × D × F
+  RMSNorm scales:         attention norm + FFN norm = 2 × D
+  --------------------------------------------------------------
+  parameters per block = 4D² + 3DF + 2D
+~~~
+
+The final RMSNorm contributes another `D` parameters. Therefore the exact
+parameter-count formula for this model is:
+
+~~~text
+  P = (V × D)                         token embedding
+    + (V × D)                         untied LM head
+    + L × (4D² + 3DF + 2D)            Transformer blocks
+    + D                               final RMSNorm
+~~~
+
+A small preflight estimator can turn a configuration into a storage budget
+before the model is constructed:
+
+~~~python
+def estimate_dense_weight_bytes(
+    *, vocab_size, d_model, num_layers, d_ff,
+    bytes_per_parameter=4, tied_embeddings=False,
+):
+    vocabulary_matrices = 1 if tied_embeddings else 2
+    parameters = (
+        vocabulary_matrices * vocab_size * d_model
+        + num_layers * (4 * d_model**2 + 3 * d_model * d_ff + 2 * d_model)
+        + d_model
+    )
+    return parameters, parameters * bytes_per_parameter
+~~~
+
+This estimates dense persistent parameters only. Add optimizer-state
+multipliers for checkpoints, and add persistent buffers, sharding metadata,
+and a small serialization allowance for a final file-size budget.
+
+### Applying the formula to `tinystories-500`
+
+The saved configuration is `V=50,257`, `D=256`, `L=4`, and `F=1,024`, with
+`float32` weights. The ledger is:
+
+| Component | Formula | Parameters |
+| --- | ---: | ---: |
+| Token embedding | `50,257 × 256` | 12,865,792 |
+| Untied LM head | `256 × 50,257` | 12,865,792 |
+| Attention in one block | `4 × 256²` | 262,144 |
+| SwiGLU in one block | `3 × 256 × 1,024` | 786,432 |
+| Two RMSNorms in one block | `2 × 256` | 512 |
+| All four blocks | `4 × (262,144 + 786,432 + 512)` | 4,196,352 |
+| Final RMSNorm | `256` | 256 |
+| **Total** | — | **29,928,192** |
+
+`float32` uses four bytes per scalar, so the raw tensor payload is:
+
+~~~text
+  29,928,192 parameters × 4 bytes
+  = 119,712,768 bytes
+  ≈ 119.7 MB (decimal)
+  ≈ 114.1 MiB (2²⁰-byte units)
+~~~
+
+That is why `du -sh .../artifact.pt` reports approximately `120M`. The
+repository’s actual file is 119,794,788 bytes: only about 82 KB above the raw
+tensor total. The difference is the PyTorch serialization record, tensor
+storage metadata, dictionary keys, and the small configuration/tokenizer/data/
+metrics payload. `du` reports allocated filesystem space and rounds to a
+human-readable unit, so its display is not a byte-exact measurement. Use
+`stat -f '%z bytes' path/to/artifact.pt` on macOS (or `stat -c '%s'` on Linux)
+when exact logical file size matters.
+
+### What is and is not included in this number
+
+* `artifact.pt` contains the final model state and metadata, but not the
+  tokenized `train.npy`/`valid.npy` arrays. Those are separate files in the
+  run directory and can be much larger than the model.
+* The final artifact does not contain AdamW moments. A resumable checkpoint
+  does: two additional `float32` tensors of approximately `P` elements each
+  are normally allocated for Adam’s first and second moments. Consequently,
+  the idealized checkpoint size is roughly
+
+  ~~~text
+    model weights + Adam moments ≈ P × (4 + 4 + 4) bytes = 3 × model bytes
+  ~~~
+
+  before small state and serialization overhead. For this run that is about
+  359 MB decimal, which agrees with the observed 359,260,504-byte checkpoint
+  (displayed by `du` as roughly `343M` in binary-style units).
+* RoPE’s cosine/sine caches are registered with `persistent=False`, so they
+  are rebuilt from `theta`, head dimension, and context length and do not add
+  bytes to `state_dict`. Likewise, `context_length` changes activation and
+  attention-memory costs during a forward pass, but does not change this
+  model’s parameter count.
+* The data, metrics, checkpoints, and JSON sidecars do count toward the total
+  run-directory size, but not toward `artifact.pt`’s tensor accounting.
+
+### Dtype, tying, and architecture sensitivity
+
+For the same parameter count, storage scales linearly with the bytes per
+parameter:
+
+| Weight dtype | Bytes/parameter | Approximate model size for this run |
+| --- | ---: | ---: |
+| `float64` | 8 | 239.4 MB |
+| `float32` | 4 | 119.7 MB |
+| `float16` / `bfloat16` | 2 | 59.9 MB |
+| int8 weights (plus scales/metadata) | ~1 | ~29.9 MB before quantization overhead |
+
+Quantized formats are not exactly one byte per parameter because scales,
+zero-points, alignment, and sometimes higher-precision outlier matrices must
+also be stored. The table is therefore a planning estimate, not a promise of
+the final file size.
+
+Two architectural choices have especially large effects:
+
+1. **Weight tying.** If the LM head reuses the token-embedding matrix, remove
+   one `V × D` term. Here that would save 12,865,792 parameters, or about
+   51.5 MB in `float32`.
+2. **Vocabulary size.** The two vocabulary matrices contribute `2VD`; for
+   small models they can dominate every Transformer block. Increasing `V`
+   by 10,000 with `D=256` adds 5,120,000 parameters, about 20.5 MB in
+   `float32`.
+
+For a different configuration, substitute its `V`, `D`, `L`, and `F` into
+the formula and multiply by the intended storage dtype. Then add persistent
+buffers and a small serialization/metadata allowance. For large models,
+round up further for sharding indexes, alignment, and any duplicated
+master-precision or optimizer state. This gives a capacity estimate before
+launching a run, which is useful for local disk, Modal Volume, object-store,
+and worker-memory planning.
+
+## 15. Run and inspect training output
 
 ~~~bash
 uv run python -m pipeline train \
@@ -882,7 +1035,7 @@ uv run python -m pipeline train \
 Use '--valid-data data/TinyStoriesV2-GPT4-valid.txt' for a separate validation
 corpus. The printed final path points to 'artifact.pt'.
 
-## 15. Failure modes
+## 16. Failure modes
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
@@ -894,7 +1047,7 @@ corpus. The printed final path points to 'artifact.pt'.
 | CUDA/MPS not available | Backend is inaccessible | Configure runtime or use CPU |
 | unsupported checkpoint schema | Incompatible artifact version | Use a compatible version |
 
-## 16. Current boundaries
+## 17. Current boundaries
 
 Implemented: single-device CPU/CUDA/MPS training, deterministic preprocessing,
 memory-mapped arrays, warmup/cosine schedule, AdamW, clipping, evaluation,
@@ -908,7 +1061,7 @@ Tests in 'tests/test_pipeline.py' protect deterministic encoding, tiny training,
 artifact loading, schema version, final step, and manifest creation. Existing
 CS336 tests protect the numerical components used by the pipeline.
 
-## 17. Running the same pipeline on Modal
+## 18. Running the same pipeline on Modal
 
 'modal_app.py' is a deployment adapter; it does not duplicate the training
 loop. It builds a Python 3.12 image, attaches an L4 GPU, mounts persistent
