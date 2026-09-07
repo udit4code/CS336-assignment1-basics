@@ -1,6 +1,6 @@
 # Multi-head causal self-attention
 
-Source: `MultiHeadSelfAttentionModule/MultiHeadSelfAttention.py`.
+Current source: `cs336_basics/nn/multihead_attention.py`.
 
 ## Purpose and shape story
 
@@ -19,17 +19,19 @@ output projection         (B,S,D)
 
 The constructor asserts `D % H == 0`, sets `K=D/H`, creates four `D->D` bias-free projections, and creates a RoPE object sized for one head. Four dense projection matrices give `4D²` parameters.
 
-## Forward walkthrough by source lines
+## Forward walkthrough
 
-- Lines 80–82 unpack the expected rank-three input. A malformed input fails naturally during unpacking.
-- Lines 85–94 calculate `Q=XWqᵀ`, `K=XWkᵀ`, and `V=XWvᵀ`. These are separate learned views of the same residual representation.
-- Lines 96–129 use `view(B,S,H,K)`. No values change; the final `D` coordinates are partitioned into heads.
-- Lines 132–144 transpose to `(B,H,S,K)`. This makes `(B,H)` batch-like leading axes for the generic attention function. Transpose normally changes metadata/strides without copying.
-- Lines 147–159 rotate Q and K when `use_rope` is true. The RoPE object is currently constructed even when disabled—small unnecessary setup, but no semantic error.
-- Lines 161–180 build a lower-triangular boolean `(S,S)` mask on the input device. `True` includes the diagonal and past; `False` blocks future keys.
-- Lines 183–193 call scaled dot-product attention. Broadcasting applies the same causal mask to every batch/head.
-- Lines 196–213 transpose results to `(B,S,H,K)`, then call `contiguous().view(B,S,D)`. The copy restores logical head ordering in contiguous storage before flattening.
-- Lines 216–219 apply `W_o`, which mixes information across the concatenated head coordinates.
+- Unpacking `batch_size, seq_len, _ = x.shape` enforces a rank-three input
+  structurally; there is no explicit last-dimension validation.
+- The three projections calculate `Q=XWqᵀ`, `K=XWkᵀ`, and `V=XWvᵀ`.
+- `view(B,S,H,K)` partitions the final `D` coordinates into heads without
+  changing values, and transpose produces `(B,H,S,K)`.
+- RoPE rotates Q and K when enabled. The RoPE object is still constructed when
+  disabled, which is semantically harmless but unnecessary setup.
+- A lower-triangular boolean `(S,S)` mask allows the diagonal and past. It
+  broadcasts across batch and heads.
+- Attention returns `(B,H,S,K)`. Transpose, `contiguous`, and `view` restore
+  `(B,S,D)`, after which `W_o` mixes concatenated head channels.
 
 ## Worked shape example
 
@@ -64,3 +66,26 @@ The output projection is essential because concatenation alone leaves head chann
 
 **What is a KV cache?**  During generation, store prior keys and values and compute only those for the new token. It eliminates repeated K/V projection of the prefix, though attention over cached positions remains.
 
+## Senior interview depth
+
+Splitting into heads changes the inductive structure, not the total width: each
+head forms its own `S×S` probability matrix in a learned `K`-dimensional
+subspace. Concatenation followed by `W_o` is equivalent to applying learned
+linear combinations across all head outputs; without it, subsequent residual
+features would remain tied to fixed head partitions.
+
+For full-sequence training, projections cost roughly `8BSD²` FLOPs for Q/K/V/O
+combined, while the two attention contractions cost roughly `4BS²D`. During
+single-token cached decoding, new-token projection stays `O(D²)`, cache reads
+and attention are `O(SD)`, and KV memory grows `O(LBSD)` across layers. At long
+contexts, memory bandwidth for reading the cache is often central.
+
+Multi-query attention shares K/V across all query heads; grouped-query attention
+uses an intermediate number of K/V heads. Both reduce cache size and bandwidth
+at a possible quality trade-off. This repository implements standard MHA, has
+no padding mask or dropout, rebuilds its causal mask each call, and recomputes
+the entire prefix during generation.
+
+High-value tests check causality by perturbing future tokens, head split/merge
+ordering, RoPE on/off behavior, reference equivalence, non-contiguous layouts,
+and gradients for `B != H`—a shape choice that catches accidental broadcasting.

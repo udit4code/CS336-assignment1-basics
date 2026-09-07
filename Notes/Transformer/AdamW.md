@@ -1,6 +1,6 @@
 # AdamW optimizer
 
-Source: `AdamWOptimizerModule/AdamW.py`.
+Current source: `cs336_basics/nn/adamw.py`.
 
 ## Update equations
 
@@ -54,3 +54,27 @@ Adding `λθ` to Adam's gradient couples regularization to adaptive rescaling. A
 
 **Is AdamW always better than SGD?**  No. AdamW is usually convenient and robust for Transformers; optimizer choice still interacts with data, scale, scheduling, and generalization.
 
+## Senior interview depth
+
+Adam is invariant to rescaling a coordinate's gradients only approximately:
+epsilon, finite-history moments, clipping, and parameter decay break exact
+invariance. `β1` controls directional smoothing; `β2` controls the time horizon
+of squared-gradient scale. Large `β2` reduces noise but adapts slowly after a
+distribution change. Bias correction matters most during those early horizons.
+
+The repository uses `alpha_t = lr·sqrt(1-β2^t)/(1-β1^t)` with denominator
+`sqrt(v_t)+eps`. This is not exactly the conventional
+`lr·m_hat/(sqrt(v_hat)+eps)` unless epsilon is correspondingly rescaled. That
+difference is tiny when `sqrt(v)` dominates epsilon but should be preserved when
+matching assignment tests or checkpoints.
+
+Production review: validate `lr`, betas, epsilon, and decay; reject or support
+sparse gradients explicitly; use in-place/foreach/fused kernels; avoid replacing
+moment tensors each step; and define capturable/differentiable behavior when
+needed. Parameter groups commonly exclude biases and normalization scales from
+decay. Distributed training may shard the two full-size moment tensors because
+they add roughly two parameter-sized states before any FP32 master weights.
+
+A robust test compares several steps—including `grad=None` and multiple groups—
+against an equation-level reference, then round-trips `state_dict` and verifies
+resume produces exactly the same next update.

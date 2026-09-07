@@ -1,6 +1,6 @@
 # Cross-entropy from logits
 
-Source: `CrossEntropyLossModule/CrossEntropy.py`.
+Current source: `cs336_basics/nn/cross_entropy.py`.
 
 ## Contract and equation
 
@@ -47,3 +47,21 @@ For one example, `∂L/∂z_i = softmax(z)_i - 1[i=y]`. The model is pushed to i
 
 **Why are targets integers rather than one-hot?**  The correct logit can be gathered directly, saving `O(V)` target storage per position.
 
+## Senior interview depth
+
+For a batch of `N` tokens, the gradient is `(P-Y)/N`, where `P` is softmax and
+`Y` is the one-hot target matrix. The division by `N` comes from this function's
+mean reduction. Changing reduction, masking padding, or distributing the batch
+changes the effective gradient scale and therefore interacts with learning rate.
+
+The stable loss can be written directly as `logsumexp(z)-z_y`; subtracting the
+maximum explicitly is sound, but a fused cross-entropy avoids materializing all
+intermediates and can combine reduction efficiently. Its unavoidable logits
+work is `O(NV)`, which is expensive for large vocabularies even though target
+selection itself is `O(N)`.
+
+Production gaps are explicit range checking, `ignore_index`, label smoothing,
+per-token weights, selectable reduction, and defined behavior for zero valid
+tokens. Tests should include huge-magnitude logits, arbitrary leading shapes,
+invalid targets, gradient comparison with `torch.nn.functional.cross_entropy`,
+and the identity `perplexity = exp(natural-log NLL)` under identical masking.

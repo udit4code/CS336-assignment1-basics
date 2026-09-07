@@ -1,6 +1,6 @@
 # Stochastic gradient descent and the training loop
 
-Source: `StochasticGradientDescentModule/SGD.py` and `SGD_training_loop.py`.
+Current source: `cs336_basics/nn/sgd.py` and `sgd_example.py`.
 
 ## What this implementation actually is
 
@@ -21,7 +21,9 @@ Plain SGD would use constant `lr` unless an external scheduler changes it. This 
 - Gradient is read, effective learning rate is `lr/sqrt(t+1)`, and the parameter is changed under `torch.no_grad()` so optimizer arithmetic does not enter autograd's graph.
 - `state["t"] = t+1` records the next step.
 
-The code uses `p.data` inside `no_grad`. Modern style is simply `p.add_(grad, alpha=-effective_lr)` within `no_grad`; `.data` can bypass safety checks and is unnecessary here.
+The current code mutates `p` inside `torch.no_grad()`. An in-place
+`p.add_(grad, alpha=-effective_lr)` would express the same update without an
+extra multiplication result, but the existing form has correct autograd semantics.
 
 ## Training-loop walkthrough
 
@@ -45,3 +47,22 @@ Zeroing before backward and after step are both valid conventions as long as it 
 
 **How does this differ from momentum SGD?**  Momentum stores a velocity that accumulates past gradients. This implementation stores only a step counter and decays learning rate.
 
+## Senior interview depth
+
+For an unbiased minibatch gradient estimate with covariance decreasing as batch
+size grows, SGD noise can act as implicit regularization. Linear learning-rate
+scaling with batch size is a heuristic that depends on warmup, optimizer,
+curvature, and training regime—not a universal law. Momentum changes the update
+to a filtered gradient/velocity and is distinct from merely decaying step size.
+
+This implementation's counter is per parameter, so a parameter with `grad=None`
+does not advance while active parameters do. Its schedule can therefore diverge
+across conditionally used parameters. The closure is called once without an
+explicit `torch.enable_grad()` context; a production optimizer should follow the
+PyTorch closure contract when callers invoke `step` under disabled gradients.
+
+It also does not support momentum, dampening, Nesterov acceleration, weight
+decay, maximize mode, sparse-specialized updates, or fused/foreach execution.
+Tests should cover the exact first few scalar updates, independent parameter
+counters, multiple learning-rate groups, closure return values, serialization,
+and equivalence after checkpoint resume.

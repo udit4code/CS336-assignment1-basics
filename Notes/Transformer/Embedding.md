@@ -1,6 +1,6 @@
 # Token embedding
 
-Source: `EmbeddingModule/EmbeddingLayer.py`.
+Current source: `cs336_basics/nn/embedding.py`.
 
 ## Contract and first principles
 
@@ -51,3 +51,21 @@ Input shape `(2,2)` becomes `(2,2,2)`. Repeated ID `2` uses the same parameter r
 
 **Why do repeated tokens start with identical vectors?**  Lookup is context-free. Attention and feed-forward layers turn those identical initial rows into context-dependent hidden states.
 
+## Senior interview depth
+
+The dense table has `VD` parameters and, with a dense optimizer, equally dense
+optimizer state even though a minibatch touches relatively few rows. A gather
+has irregular memory access and low arithmetic intensity; embedding throughput
+is often bandwidth- or communication-bound rather than FLOP-bound. Large-vocab
+systems may shard rows across devices and route token IDs to their owning shard.
+
+Repeated IDs are important in backward: gradients are a scatter-add, so write
+collisions must accumulate rather than overwrite. `nn.Embedding(sparse=True)`
+can expose sparse gradients, but optimizer support is restricted. This custom
+advanced-indexing implementation produces ordinary dense parameter gradients.
+
+Weight tying makes logits `hEᵀ` and saves `VD` parameters. It also ties the
+geometry used to encode tokens to the geometry used to score them; it is not
+merely a memory trick. Padding support would additionally require deciding
+whether a padding row is frozen and ensuring padded targets are excluded from
+the loss and attention mask.

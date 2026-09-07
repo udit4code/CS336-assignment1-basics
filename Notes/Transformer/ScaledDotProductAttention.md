@@ -1,6 +1,6 @@
 # Scaled dot-product attention
 
-Source: `ScaledDotProductAttentionModule/ScaledDotProductAttention.py` and `ScaledDotProductAttentionEinops.py`.
+Current source: `cs336_basics/nn/attention.py` and `attention_einops.py`.
 
 ## Core equation
 
@@ -53,3 +53,22 @@ Suppose one query has scaled scores `[2,1,5]`, but at its current position only 
 
 **What does FlashAttention change?**  Primarily the execution strategy and memory I/O through tiling and online softmax, not the conceptual attention equation.
 
+## Senior interview depth
+
+The general cross-attention contract permits `Q != L` and `d_v != d_k`; only
+the leading dimensions and key length must be compatible. The current function
+does not validate these relationships explicitly, so failures surface from
+`matmul`, broadcasting, or masking. It also requires a boolean mask in practice
+because `masked_fill` expects one; the public contract should say so.
+
+Dense attention's arithmetic is two contractions: score formation costs roughly
+`2Q L d_k` FLOPs per leading item and value aggregation costs `2Q L d_v`.
+FlashAttention is exact attention up to floating-point ordering: tiled online
+softmax tracks row maxima and normalizers without writing the full score matrix
+to high-bandwidth memory. It reduces memory traffic and activation storage, not
+the `O(QL)` number of pairwise interactions.
+
+For padding plus causality, the combined allow-mask is their logical AND. In
+distributed or mixed-precision systems, also reason about mask construction
+cost, finite sentinel values versus `-inf`, grouped-query attention, KV-cache
+layout, and whether dropout is applied to probabilities before multiplying V.

@@ -1,6 +1,6 @@
 # Rotary positional embedding (RoPE)
 
-Source: `RoPEModule/RoPE.py` and `RoPEWithReduce.py`.
+Current source: `cs336_basics/nn/rotary_embedding.py` and `rotary_embedding_einops.py`.
 
 ## Why position must enter attention
 
@@ -21,7 +21,8 @@ y' = x sin φ + y cos φ
 
 ## Constructor walkthrough
 
-- `assert d_k % 2 == 0`: every coordinate must belong to a 2-D rotation pair.
+- Explicit validation requires a finite positive `theta`, a positive even
+  integer `d_k`, and a positive integer `max_seq_len`.
 - `torch.arange(0,d_k,2)`: creates exponent numerators `0,2,...,K-2`, one per pair—not indices later used to select `x`.
 - `1 / theta ** (freq_seq/d_k)`: produces geometrically spaced inverse frequencies. Early pairs rotate quickly; later pairs slowly.
 - `positions = arange(max_seq_len)`: lists every cacheable absolute position.
@@ -55,7 +56,9 @@ Thus the rotated Q-K dot product depends on relative offset `r-p`, even though Q
 - Cache memory is `2 × max_seq_len × K/2 = max_seq_len×K` floats.
 - Forward time is `O(BHSK)` and does not materialize a `K×K` block-diagonal matrix.
 - Positions must be less than `max_seq_len`; generation beyond the cache needs extension or a longer cache.
-- The cache is FP32. Multiplication may promote lower-precision Q/K before assignment casts to `x`'s dtype; this favors accurate trig tables but can incur conversion costs.
+- The cache is FP32. Multiplication may promote lower-precision Q/K. The slicing
+  version writes into `empty_like(x)` and returns `x.dtype`; the einops version
+  stacks promoted results and currently returns FP32 for FP16/BF16 input.
 - “Slow frequency” does not alone guarantee reliable length extrapolation. RoPE scaling variants address contexts beyond training length.
 
 ## Interview questions
@@ -70,3 +73,27 @@ Thus the rotated Q-K dot product depends on relative offset `r-p`, even though Q
 
 **Does RoPE add a vector to the residual stream?**  No. It rotates Q/K coordinates multiplicatively inside attention.
 
+## Senior interview depth
+
+Each 2-D rotation is orthogonal, so it preserves the L2 norm of every Q/K
+vector. At equal positions it also preserves their dot product. At different
+positions, the relative-rotation identity changes phase per frequency, giving
+the attention score access to relative displacement without a learned position
+table.
+
+The current implementation supports shared positions `(S,)`, batched positions
+`(B,S)`, and other leading shapes broadcastable to `x`. It inserts singleton
+axes immediately before `(S,K/2)`, which is what allows `(B,S,K/2)` caches to
+broadcast over heads in `(B,H,S,K)`. It explicitly rejects negative/out-of-cache
+positions, wrong dtypes/devices, odd widths, and incompatible batch shapes.
+
+During cached decoding, token positions must be absolute offsets rather than
+always restarting at zero. RoPE does not by itself solve length extrapolation:
+phase aliasing and distribution shift remain, motivating methods such as
+frequency or position scaling. Production implementations may compute cache
+growth lazily, store complex pairs, fuse rotation into Q/K kernels, or use a
+different pairing convention; checkpoint compatibility depends on that convention.
+
+That mixed-precision dtype discrepancy is an important review finding: the two
+implementations agree mathematically but not at the API boundary for low-precision
+input. Production code should choose and test one output-dtype policy explicitly.

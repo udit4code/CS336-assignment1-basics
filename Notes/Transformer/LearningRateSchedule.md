@@ -1,6 +1,6 @@
 # Linear warmup and cosine learning-rate decay
 
-Source: `LearningRateScheduleModule/LearningRateSchedule.py`.
+Current source: `cs336_basics/nn/schedules.py`.
 
 ## Piecewise schedule
 
@@ -55,3 +55,22 @@ Let `α_max=10^-3`, `α_min=10^-4`, `T_w=100`, `T_c=1000`.
 
 **Does AdamW's adaptivity eliminate scheduling?**  No. AdamW rescales coordinates, while the global learning rate still controls overall update magnitude over training.
 
+## Senior interview depth
+
+The cosine segment has zero derivative at both endpoints, avoiding a slope jump
+where warmup meets decay only if the linear warmup's nonzero left derivative is
+ignored: the schedule is value-continuous at `T_w`, but generally not
+derivative-continuous there. At `T_c`, it joins the constant floor with zero
+slope and is both value- and first-derivative continuous.
+
+State clearly what `t` counts. Advancing per microbatch instead of per optimizer
+update shortens the schedule under gradient accumulation. Resuming training must
+restore the global optimizer-step count; otherwise learning rate silently jumps.
+Token-based schedules can be preferable when batch sequence lengths vary.
+
+The current validation permits the degenerate `T_c == T_w`, which divides by
+zero when `t == T_w`, and `T_w == 0` relies on branch ordering to avoid warmup
+division for nonnegative `t`. Production validation should require nonnegative
+time/rates, `alpha_max >= alpha_min`, and a deliberate policy for zero-duration
+phases. Boundary-value tests at `T_w-1`, `T_w`, `T_c`, and `T_c+1` catch most
+off-by-one errors.

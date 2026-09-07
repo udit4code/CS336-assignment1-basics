@@ -1,6 +1,6 @@
 # SiLU activation
 
-Source: `SiLUModule/SiLULayer.py`.
+Current source: `cs336_basics/nn/activation.py`.
 
 ## Definition
 
@@ -22,7 +22,8 @@ At `x=-1,0,1`, approximate outputs are `-0.269, 0, 0.731`. Negative values are a
 ## Code walkthrough
 
 - `import torch`: supplies the stable sigmoid tensor operation.
-- `def silu(x)`: a stateless function is sufficient; there are no learned parameters or buffers.
+- `SiLU(nn.Module)` makes the stateless activation composable with other
+  modules; it has no learned parameters or buffers.
 - `sigmoid_x = torch.sigmoid(x)`: creates a gate in `(0,1)` for each coordinate.
 - `return x * sigmoid_x`: gates the original value elementwise.
 
@@ -42,3 +43,16 @@ SwiGLU applies SiLU to one learned projection and multiplies it by a second lear
 
 **What is the memory/performance concern?**  A literal sigmoid followed by multiplication can create an intermediate and two kernels. A fused primitive can reduce memory traffic and launch overhead.
 
+## Senior interview depth
+
+The derivative can be negative for sufficiently negative inputs, which explains
+the small non-monotonic basin; SiLU is not simply a smooth ReLU. Near zero,
+`SiLU(x) ≈ x/2 + x²/4`, so it initially transmits half the local linear signal.
+For large negative `x`, both output and derivative approach zero; for large
+positive `x`, output and derivative approach `x` and one respectively.
+
+In the current model SiLU appears inside SwiGLU, where its output is multiplied
+by an independently learned up projection. Consequently, initialization and
+activation scale affect a product of two branches. A useful test compares both
+values and gradients with `torch.nn.functional.silu`, including extreme values
+and low-precision dtypes.

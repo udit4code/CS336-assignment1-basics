@@ -1,6 +1,6 @@
 # Linear layer without bias
 
-Source: `LinearModule/LinearLayerWithoutBias.py` and `LinearLayerWithoutBiasEinops.py`.
+Current source: `cs336_basics/nn/linear.py` and `linear_einops.py`.
 
 ## What it does
 
@@ -29,7 +29,10 @@ For `x=[1,2]` and `W=[[3,4],[5,6],[7,8]]`, `y=[11,17,23]` because each output is
 
 ## Why transpose the weight?
 
-Storing rows as output neurons makes `weight[o]` the complete receptive vector for output `o`, matches `torch.nn.Linear`, and makes checkpoint copying straightforward. The source comment suggesting `(4,3) @ (2,3)` is valid is inaccurate: the executable code correctly uses `weight.T`, so `(4,3) @ (3,2) -> (4,2)`.
+Storing rows as output neurons makes `weight[o]` the complete receptive vector
+for output `o`, matches `torch.nn.Linear`, and makes checkpoint copying
+straightforward. For example, `(4,3) @ (3,2) -> (4,2)` after transposing a
+stored `(2,3)` weight; multiplying `(4,3) @ (2,3)` directly is invalid.
 
 ## Complexity and numerical details
 
@@ -55,3 +58,21 @@ Storing rows as output neurons makes `weight[o]` the complete receptive vector f
 
 You should be able to state the weight layout, perform the shape calculation, derive `dX/dW`, explain `Parameter`, and distinguish mathematical equivalence from kernel performance.
 
+## Senior interview depth
+
+For a flattened input `X ∈ R^(N×D_in)` and upstream gradient
+`G ∈ R^(N×D_out)`, reverse mode gives `dX = GW` and `dW = GᵀX`.
+The backward pass therefore has the same order of compute as the forward pass
+and requires reductions over every token for `dW`. In distributed data
+parallel training, those per-rank `dW` tensors are subsequently all-reduced.
+
+Arithmetic intensity is usually high enough for large projections to be
+compute-bound, but small shapes can be dominated by kernel-launch overhead.
+Q/K/V fusion improves launch and input-read efficiency without changing the
+parameter count. Bias-free does not mean parameter-free: the `D_out×D_in`
+weight remains the dominant state.
+
+Production review of this implementation: validate positive feature sizes,
+consider a coordinated residual-aware initialization, and test forward and
+backward equivalence against `torch.nn.functional.linear`. The two custom
+variants should agree across leading ranks, dtypes, and non-contiguous inputs.

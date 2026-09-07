@@ -1,6 +1,6 @@
 # Pre-norm Transformer block
 
-Source: `TransformerBlockModule/TransformerBlock.py`.
+Current source: `cs336_basics/nn/transformer_block.py`.
 
 ## Computation
 
@@ -54,3 +54,20 @@ Ignoring norm scales, attention has `4D²` weights and SwiGLU has `3DF`; norms a
 
 **What makes this a decoder block?**  Its self-attention is causal, preventing access to future tokens. It has no encoder-decoder cross-attention.
 
+## Senior interview depth
+
+For branch `x_{l+1}=x_l+F(Norm(x_l))`, the residual Jacobian includes an
+identity path. Pre-norm therefore improves optimization at depth, but it does
+not guarantee bounded residual-stream magnitude: branch outputs accumulate
+across layers. Final normalization controls the scale seen by the LM head.
+
+The block has no dropout, stochastic depth, learned residual scaling, or bias.
+Its two sequential residual dependencies prevent attention and FFN from running
+in parallel. Parallel-block variants evaluate both from a shared normalized
+input, trading a different architecture for potential execution advantages.
+
+Activation checkpointing can discard branch intermediates and recompute them in
+backward, exchanging compute for memory. Tensor parallelism typically shards
+attention heads/projections and FFN width, while pipeline parallelism partitions
+blocks. Residual and normalization placement determine where communication and
+precision-sensitive reductions occur.

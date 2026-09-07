@@ -1,6 +1,6 @@
 # Decoder-only Transformer language model
 
-Source: `TransformerLanguageModelModule/TransformerLanguageModel.py`.
+Current source: `cs336_basics/nn/transformer.py`.
 
 ## End-to-end contract
 
@@ -69,3 +69,28 @@ These omissions make the educational forward pass easier to inspect; they do not
 
 **Where are positional embeddings added?**  Nowhere in the residual stream. RoPE rotates Q/K inside each attention layer.
 
+## Senior interview depth
+
+The causal LM objective factorizes sequence probability as
+`p(x_1:T)=Π_t p(x_t | x_<t)`. Teacher forcing computes all conditional logits
+in parallel because the triangular mask prevents information leakage. Loss must
+still shift targets correctly; feeding identical input and target indices would
+train token reconstruction rather than next-token prediction.
+
+The current model accepts only rank-two token IDs in practice because it unpacks
+`token_ids.shape` into `(B,S)`. It validates dtype with an assertion, has no
+explicit vocabulary-range or context-length check, and generates positions from
+zero on every call. Consequently it is a training/full-prefix interface, not a
+correct incremental-decoding API with cache offsets.
+
+Training memory includes parameters, gradients, optimizer states, saved
+activations, and temporary kernels. For Adam-like training in mixed precision,
+optimizer/master-weight state can exceed parameter storage; for long sequences,
+attention and residual activations can dominate. Production levers include
+weight tying, fused kernels, activation checkpointing, sequence/tensor/pipeline
+parallelism, sharded optimizer state, and reduced-precision formats.
+
+An end-to-end test should verify output shape, finite loss/gradients, causal
+invariance to future-token perturbations, save/load identity, deterministic
+initialization, device/dtype transfer, maximum-context behavior, and parity
+between full-prefix and cached decoding once a KV-cache path exists.

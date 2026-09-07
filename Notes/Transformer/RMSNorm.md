@@ -1,6 +1,6 @@
 # RMSNorm
 
-Source: `RMSNormModule/RMSNormLayer.py` and `RMSNormLayerWithReduce.py`.
+Current source: `cs336_basics/nn/normalization.py` and `normalization_einops.py`.
 
 ## Equation and contract
 
@@ -57,3 +57,21 @@ RMSNorm is approximately invariant to positive rescaling: `RMSNorm(cx)≈RMSNorm
 
 **Is RMSNorm parameter-free?**  No. The normalization statistic is nonlearned, but `g ∈ R^D` is learned.
 
+## Senior interview depth
+
+Ignoring epsilon, the normalized vector lies on a sphere with squared norm `D`,
+not unit Euclidean norm. RMSNorm is invariant to positive scaling and changes
+sign under negative scaling. Its Jacobian contains a direct scaled identity
+term minus a rank-one correction induced by the shared RMS statistic, so output
+coordinates are coupled even though the learned scale is elementwise.
+
+Unlike LayerNorm, RMSNorm does not remove a common offset. This saves a mean
+reduction and preserves the mean component, but the practical speed difference
+depends on kernel fusion and memory traffic. Upcasting the reduction to FP32 is
+especially important for FP16 because squaring narrows the safe dynamic range.
+
+The current code correctly returns the original activation dtype, but always
+computes statistics in FP32—even for FP64 input—so it is not a full-precision
+reference for double tensors. Production tests should cover zero vectors,
+extreme magnitudes, dtype/device movement, gradient equivalence, and scale
+invariance in the regime where epsilon is negligible.
