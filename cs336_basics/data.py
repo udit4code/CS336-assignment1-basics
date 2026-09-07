@@ -47,8 +47,11 @@ class LanguageModelDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         input_tokens = self.tokens[index : index + self.context_length]
         target = self.tokens[index + 1 : index + self.context_length + 1]
 
-        # Token IDs must be integer tensors for embedding-table indexing.
+        # Token IDs must be integer tensors for embedding-table indexing.  Use
+        # ``torch.tensor`` (rather than ``as_tensor``) so a read-only memmap is
+        # copied into writable tensor storage; this avoids undefined behavior
+        # warnings if a downstream operation ever writes to the batch.
         return (
-            torch.as_tensor(input_tokens, dtype=torch.long),
+            torch.tensor(input_tokens, dtype=torch.long),
             torch.tensor(target, dtype=torch.long),
         )

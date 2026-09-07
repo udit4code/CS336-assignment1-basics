@@ -26,6 +26,21 @@ and the environment will be automatically solved and activated when necessary.
 uv run pytest
 ```
 
+### Train the language model
+
+The end-to-end pipeline is available as a module. It tokenizes a UTF-8 corpus
+with tiktoken, trains `TransformerLM`, and writes a resumable artifact under
+`pipeline/artifacts`:
+
+```sh
+uv run python -m pipeline train \
+  --data data/sample-train.txt \
+  --context-length 8 --d-model 64 --num-layers 2 --num-heads 4 --d-ff 256 \
+  --warmup-steps 2 --max-steps 10
+```
+
+Use `pipeline/README.md` for the full option list and checkpoint/resume details.
+
 Initially, all tests should fail with `NotImplementedError`s.
 To connect your implementation to the tests, complete the
 functions in [./tests/adapters.py](./tests/adapters.py).
@@ -47,4 +62,3 @@ gunzip owt_valid.txt.gz
 
 cd ..
 ```
-
