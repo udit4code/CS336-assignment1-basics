@@ -1,5 +1,10 @@
 # Training pipeline deep dive
 
+> Assignment audit: the current pipeline is a useful GPT-2-tokenizer smoke-test
+> path, but it is not yet the handout's custom 10K TinyStories BPE path. See
+> [AssignmentCoverageAndExperimentPlan.md](AssignmentCoverageAndExperimentPlan.md)
+> for the complete gap analysis and ordered TinyStoriesV2-only work plan.
+
 This document explains how 'pipeline train' converts a UTF-8 text corpus into a
 trained TransformerLM artifact. It is written as a design document for a
 beginner and as a maintenance reference for an engineer. The pipeline is an
